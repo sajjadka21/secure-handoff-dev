@@ -1,0 +1,14 @@
+/target/
+/fuzz/target/
+/fuzz/artifacts/
+/.tools/
+/outputs/
+/work/
+*.swp
+.idea/
+.vscode/
+*.db
+*.sqlite
+*.sqlite3
+*.key
+*.pem

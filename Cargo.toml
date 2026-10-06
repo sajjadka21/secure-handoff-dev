@@ -1,0 +1,21 @@
+[workspace]
+resolver = "2"
+members = ["crates/clipcore"]
+
+[workspace.package]
+edition = "2024"
+license = "MIT OR Apache-2.0"
+rust-version = "1.89"
+
+[workspace.dependencies]
+anyhow = "1.0"
+blake3 = "1.8"
+snow = { version = "0.10", default-features = false, features = ["default-resolver", "std", "use-chacha20poly1305", "use-blake2", "use-curve25519", "use-getrandom"] }
+x25519-dalek = { version = "2.0", features = ["static_secrets"] }
+zeroize = "1.8"
+getrandom = "0.3"
+cbor2 = "=1.1.6"
+rusqlite = { version = "=0.40.2", default-features = false, features = ["bundled"] }
+thiserror = "=2.0.20"
+uuid = { version = "=1.26.1", features = ["v4"] }
+proptest = "=1.9.0"

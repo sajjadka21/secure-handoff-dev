@@ -1,0 +1,90 @@
+name: Rust quality gates
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2.9.2
+      - name: Format
+        run: cargo fmt --all -- --check
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+      - name: Tests
+        run: cargo test --workspace --locked
+      - name: Debug build
+        run: cargo build --workspace --locked
+      - name: Release build
+        run: cargo build --workspace --locked --release
+
+  fuzz:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@nightly-2026-10-05
+      - uses: Swatinem/rust-cache@v2.9.2
+      - name: Check fuzz source formatting
+        run: cargo fmt --manifest-path fuzz/Cargo.toml -- --check
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --version 0.13.2 --locked
+      - name: Bounded fuzz smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          for target in qr envelope pairing_control pairing_events; do
+            cargo fuzz run "$target" -- -max_total_time=20
+          done
+
+  dependency-policy:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2.9.2
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --version 0.22.2 --locked
+      - name: Install cargo-deny
+        run: cargo install cargo-deny --version 0.20.2 --locked
+      - name: Audit dependencies
+        run: cargo audit
+      - name: Check dependency policy
+        run: cargo deny check
+
+  security-artifacts:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2.9.2
+      - name: Generate CycloneDX SBOM
+        run: |
+          cargo install cargo-cyclonedx --version 0.5.9 --locked
+          cargo cyclonedx --all --format json --spec-version 1.5 --target all --override-filename sbom
+      - uses: actions/upload-artifact@v7
+        with:
+          name: phase2-cyclonedx-sbom
+          path: '**/*sbom*.json'
+          if-no-files-found: error
+      - name: Scan repository for secrets
+        uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_COMMENTS: false

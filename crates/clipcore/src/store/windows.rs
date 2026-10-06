@@ -15,12 +15,23 @@ const TARGET: &[u16] = &[
     118, 49, 0,
 ];
 
-pub struct WindowsCredentialStore;
+pub struct WindowsCredentialStore {
+    target: Vec<u16>,
+}
+
+impl Default for WindowsCredentialStore {
+    fn default() -> Self {
+        Self {
+            target: TARGET.to_vec(),
+        }
+    }
+}
+
 impl IdentityStore for WindowsCredentialStore {
     fn read(&self) -> Result<Option<Zeroizing<Vec<u8>>>, IdentityError> {
         let mut raw: *mut CREDENTIALW = null_mut();
         // SAFETY: target is a static NUL-terminated UTF-16 string; output is freed by CredFree.
-        let ok = unsafe { CredReadW(TARGET.as_ptr(), CRED_TYPE_GENERIC, 0, &mut raw) };
+        let ok = unsafe { CredReadW(self.target.as_ptr(), CRED_TYPE_GENERIC, 0, &mut raw) };
         if ok == 0 {
             // SAFETY: GetLastError has no pointer arguments.
             let error = unsafe { GetLastError() };
@@ -59,7 +70,7 @@ impl IdentityStore for WindowsCredentialStore {
         let mut record = Zeroizing::new(record.to_vec());
         let credential = CREDENTIALW {
             Type: CRED_TYPE_GENERIC,
-            TargetName: TARGET.as_ptr() as *mut u16,
+            TargetName: self.target.as_ptr() as *mut u16,
             CredentialBlobSize: u32::try_from(record.len())
                 .map_err(|_| IdentityError::Malformed)?,
             CredentialBlob: record.as_mut_ptr(),
@@ -74,7 +85,7 @@ impl IdentityStore for WindowsCredentialStore {
     }
     fn delete(&self) -> Result<(), IdentityError> {
         // SAFETY: target is a static NUL-terminated UTF-16 string.
-        if unsafe { CredDeleteW(TARGET.as_ptr(), CRED_TYPE_GENERIC, 0) } != 0 {
+        if unsafe { CredDeleteW(self.target.as_ptr(), CRED_TYPE_GENERIC, 0) } != 0 {
             return Ok(());
         }
         Err(IdentityError::OperatingSystem(unsafe { GetLastError() }))
@@ -84,6 +95,28 @@ impl IdentityStore for WindowsCredentialStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn disposable_store() -> WindowsCredentialStore {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock must be after Unix epoch")
+            .as_nanos();
+        let target = format!("ClipBridge.Phase2Test.{}.{}", std::process::id(), nonce);
+        WindowsCredentialStore {
+            target: target.encode_utf16().chain(std::iter::once(0)).collect(),
+        }
+    }
+
+    struct Cleanup(Vec<u16>);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            unsafe {
+                CredDeleteW(self.0.as_ptr(), CRED_TYPE_GENERIC, 0);
+            }
+        }
+    }
+
     #[test]
     fn credential_target_is_fixed_and_machine_local_is_explicit() {
         assert_eq!(CRED_PERSIST_LOCAL_MACHINE, 2);
@@ -97,5 +130,47 @@ mod tests {
         assert_eq!(record.len(), IDENTITY_RECORD_LEN);
         assert!(DeviceIdentity::from_record(&record).is_ok());
         assert!(DeviceIdentity::from_record(&record[..record.len() - 1]).is_err());
+    }
+
+    #[test]
+    fn credential_manager_round_trip_rejects_corruption_and_deletes_disposable_record() {
+        let store = disposable_store();
+        let _cleanup = Cleanup(store.target.clone());
+        assert!(store.read().unwrap().is_none());
+
+        let identity = DeviceIdentity::generate().unwrap();
+        let record = identity.to_record();
+        store.write(&record).unwrap();
+        let loaded = store.read().unwrap().unwrap();
+        assert_eq!(&*loaded, record.as_slice());
+
+        let mut raw: *mut CREDENTIALW = null_mut();
+        assert_ne!(
+            unsafe { CredReadW(store.target.as_ptr(), CRED_TYPE_GENERIC, 0, &mut raw) },
+            0
+        );
+        assert!(!raw.is_null());
+        let persisted = unsafe { (*raw).Persist };
+        unsafe { CredFree(raw.cast()) };
+        assert_eq!(persisted, CRED_PERSIST_LOCAL_MACHINE);
+
+        let mut malformed = [0xA5u8; 3];
+        let corrupt = CREDENTIALW {
+            Type: CRED_TYPE_GENERIC,
+            TargetName: store.target.as_ptr() as *mut u16,
+            CredentialBlobSize: malformed.len() as u32,
+            CredentialBlob: malformed.as_mut_ptr(),
+            Persist: CRED_PERSIST_LOCAL_MACHINE,
+            ..Default::default()
+        };
+        assert_ne!(unsafe { CredWriteW(&corrupt, 0) }, 0);
+        assert!(matches!(store.read(), Err(IdentityError::Malformed)));
+
+        store.delete().unwrap();
+        assert!(store.read().unwrap().is_none());
+        assert!(matches!(
+            store.delete(),
+            Err(IdentityError::OperatingSystem(ERROR_NOT_FOUND))
+        ));
     }
 }

@@ -34,8 +34,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y dbus gnome-keyring
           dbus-run-session -- bash -euo pipefail -c '
-            export HOME="${RUNNER_TEMP}/clipbridge-keyring"
-            mkdir -p "$HOME"
+            export XDG_DATA_HOME="${RUNNER_TEMP}/clipbridge-keyring/data"
+            mkdir -p "$XDG_DATA_HOME"
             eval "$(printf "\\n" | gnome-keyring-daemon --unlock --components=secrets)"
             cargo test -p clipcore linux::tests::secret_service_real_backend_round_trip_in_isolated_session -- --ignored
           '

@@ -30,7 +30,7 @@ impl LinuxSecretServiceStore {
             .map_err(|_| IdentityError::StoreUnavailable)?;
         f(&runtime)
     }
-    async fn connection() -> Result<SecretService, IdentityError> {
+    async fn connection() -> Result<SecretService<'static>, IdentityError> {
         SecretService::connect(EncryptionType::Dh)
             .await
             .map_err(Self::map_error)
@@ -159,3 +159,4 @@ mod tests {
         ));
     }
 }
+

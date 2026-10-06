@@ -162,7 +162,10 @@ mod tests {
     #[ignore = "requires an isolated, disposable Secret Service session"]
     fn secret_service_real_backend_round_trip_in_isolated_session() {
         let store = LinuxSecretServiceStore;
-        assert!(\n            store.read().unwrap().is_none(),\n            "refusing to overwrite an existing identity"\n        );
+        assert!(
+            store.read().unwrap().is_none(),
+            "refusing to overwrite an existing identity"
+        );
 
         struct Cleanup;
         impl Drop for Cleanup {

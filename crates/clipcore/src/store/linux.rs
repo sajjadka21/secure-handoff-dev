@@ -130,7 +130,6 @@ impl IdentityStore for LinuxSecretServiceStore {
         })
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -159,4 +158,3 @@ mod tests {
         ));
     }
 }
-

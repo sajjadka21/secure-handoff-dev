@@ -37,7 +37,9 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@nightly-2026-10-05
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-10-05
       - uses: Swatinem/rust-cache@v2.9.2
       - name: Check fuzz source formatting
         run: cargo fmt --manifest-path fuzz/Cargo.toml -- --check

@@ -27,36 +27,56 @@
 - Cloud service dry-run/local simulator for token replay, rate caps, disconnect cleanup, no persistent content, TURN budget stop and service errors.
 - CI dependency advisory and license checks, SBOM, secret scanning, coverage, release artifact review.
 
-## Phase 2 implementation tests and current results
+## Phase 2 implementation tests and verified results
 
-Implemented tests cover: identity record stability, malformed/mismatched key material and explicit replacement; QR protocol vector and independently generated test-only Python CBOR vector, canonical round-trip, checked-in positive/negative corpus, duplicate/unknown/missing fields, invalid UTF-8, indefinite/non-minimal/trailing data, endpoint bounds and arbitrary-byte no-panic property; invitation expiry/replacement/single-use/throttle; prologue version/nonce and wrong issuer; SAS fixed vector and transcript change; pairing confirmation/ACK ordering, unauthorized trust prevention and local repair cut point; trust database persistence, needs-repair/revocation/session invalidation; Noise-protected tamper/replay/sequence rejection; actual two-process pairing and text exchange; and rejection of an untrusted process peer.
+The shared Rust core tests cover identity-record validation and replacement, canonical QR v1 vectors and parser rejection cases, invitation lifecycle/rate limits, pairing prologue and issuer-key binding, SAS, bilateral confirmation/ACK ordering and local cut points, trust/revocation/session invalidation, authenticated message tampering/replay/version rejection, separate-process pairing/text exchange, and untrusted-peer rejection.
 
-Windows x64 with Rust 1.98.1/Cargo 1.98.1: `cargo test --workspace --locked` passed 28 unit tests and 2 process integration tests (30 passed, 0 failed). The sandboxed run denied loopback socket creation (WinSock 10013); the same command passed after loopback access was approved. `cargo fmt --all -- --check`, strict Clippy and offline locked `cargo check --workspace --locked --offline` passed. The standalone fuzz workspace also passes `cargo fmt --manifest-path fuzz/Cargo.toml -- --check`. Windows debug and release builds passed. `cargo audit` 0.22.2 scanned 170 locked crate dependencies against its loaded advisory database and found no advisories. `cargo deny` 0.20.2 reported advisories, bans, licenses and sources `ok` with configured policy; it emitted duplicate-version and unused-license warnings.
+### Hosted quality run
 
-Required quality gates and platform results:
+GitHub Actions run [#13](https://github.com/sajjadka21/secure-handoff-dev/actions/runs/37503106939), commit 2029641939822517b0963599cbc976140629e91f, completed successfully on 2026-10-06.
 
-- `cargo fmt --all -- --check`: PASS (Windows Rust 1.98.1).
-- `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`: PASS (Windows x64 Rust 1.98.1).
-- `cargo test --workspace --locked`: PASS on Windows x64, 30 tests; loopback permission was required.
-- offline/locked dependency check: `cargo check --workspace --locked --offline` PASS (Windows x64).
-- `cargo audit`: PASS, 170 locked crate dependencies, no reported advisories.
-- `cargo deny check`: PASS for configured advisories/bans/licenses/sources; duplicate versions are warnings.
-- Windows debug/release builds: PASS (Windows x64, Rust 1.98.1/Cargo 1.98.1).
-- GitHub Actions Windows/Linux workflow: NOT RUN. The authenticated GitHub integration identifies the owner account, but its available API tools do not provide repository creation, git push credentials, or workflow dispatch. The local checkout has no remote or commits; `git credential fill` returned no GitHub credential and `gh auth status` reports the local CLI token is invalid. Browser automation was unavailable in this run. Thus no private repository, remote, push, hosted workflow run ID, or CI results exist. `.github/workflows/quality.yml` is configured, but configuration is not execution evidence.
-- Windows local quality: debug and release builds, formatting, strict clippy, locked tests and offline locked check passed as above. These are local Windows results, not a GitHub Actions run.
-- Linux debug/release builds: NOT EXECUTED. WSL returned `Wsl/E_ACCESSDENIED`; Docker and Podman are absent. `cargo build --workspace --locked --target x86_64-unknown-linux-gnu` failed while building `ring` because `x86_64-linux-gnu-gcc` is unavailable. The workflow defines Ubuntu 24.04 builds but has not run.
-- Fuzz target results (Linux runs were not started):
-  - `qr`: NOT EXECUTED on Linux. A Windows/MSVC smoke with a 2-second budget failed during `ring`/`libfuzzer-sys` linking (LNK1114/access denied overwriting the libfuzzer archive), before target startup; roughly 15 seconds elapsed to termination; 0 executions; crashes/hangs not evaluated.
-  - `envelope`: NOT EXECUTED; duration 0; executions 0; crashes/hangs not evaluated.
-  - `pairing_control`: NOT EXECUTED; duration 0; executions 0; crashes/hangs not evaluated.
-  - `pairing_events`: NOT EXECUTED; duration 0; executions 0; crashes/hangs not evaluated.
-  - No fuzz target completed, so no findings were produced and no corpus files were changed by a fuzz run. This is not a clean fuzz result. The checked-in corpus contains the positive protocol/Python QR vectors, negative QR cases, valid/truncated/max-envelope inputs, and valid/truncated pairing controls. CI is configured for 20-second Linux smoke runs per target.
-- SBOM: NOT GENERATED locally. Installing pinned `cargo-cyclonedx 0.5.9` failed because the sandbox could not resolve `index.crates.io`. A CycloneDX generation/upload job is configured, but is unrun.
-- Dedicated secret scan: NOT EXECUTED locally; Gitleaks is not installed and dependency download is network-blocked. A Gitleaks Action v3 job is configured, but is unrun.
-- Native Credential Manager/Secret Service fault injection: NOT EXECUTED. Windows tests check fixed target, machine-local persistence constant and exact identity-blob validation. Linux unit tests check fixed non-identifying attributes and locked/prompt/unavailable error mapping only; Linux tests have not been executed on Linux.
+- Windows Server 2022, x86_64 MSVC, Rust 1.99.0 (b940084d7): formatting, strict Clippy, locked workspace tests, debug build, release build all passed. The test job reported 29 unit tests and 2 process integration tests passed.
+- Ubuntu 24.04.5 LTS, x86_64 GNU, Rust 1.99.0 (b940084d7): formatting, strict Clippy, locked workspace tests, debug build, release build all passed. The test job reported 28 unit tests passed and 1 isolated-service test ignored in the ordinary run, plus 2 process integration tests passed.
+- Linux Secret Service live integration: passed separately in a disposable D-Bus session with GNOME Keyring. It created a fresh identity in the Secret Service, read and validated the record, deleted it, and verified absence. Test output: 1 passed.
+- All five workflow jobs completed successfully: Windows quality, Ubuntu quality, bounded fuzz, dependency policy, and security artifacts.
 
-## Remaining validation gate
+### Bounded Linux fuzz results
 
-Phase 2 remains open. This checkout has no Git remote and the configured GitHub token is invalid, so the workflow could not be dispatched or queried. To close the CI gate, configure a valid remote and credentials, trigger `.github/workflows/quality.yml`, and retain the completed Windows 2022 and Ubuntu 24.04 job results. The required Ubuntu 24.04 debug/release builds, formatting, strict Clippy, and locked workspace tests therefore remain unverified. The four Linux fuzz smoke runs did not start; rerun each with bounded execution and report duration, executions, crashes, hangs, corpus changes, and review any finding. The configured SBOM/Gitleaks jobs also need completed results. Native OS-store fault injection remains explicitly incomplete and must not be described as passed.
+Run #13 used Ubuntu 24.04 and nightly Rust 1.101.0-nightly (282215592), with -max_total_time=20 per target. LibFuzzer reports 21 seconds per target. No crashes, hangs, sanitizer findings, or failure artifacts were reported.
 
-These checks do not constitute a security audit, cross-platform release validation, or production readiness. See `ROADMAP.md` for the remaining gates.
+| Target | Duration | Executions | Seed corpus → final in-run corpus |
+|---|---:|---:|---:|
+| qr | 21 s | 9,733,962 | 13 / 3,015 B → 163 / 17 KiB |
+| envelope | 21 s | 17,078,166 | 3 / 155 B → 59 / 2,363 B |
+| pairing_control | 21 s | 20,335,402 | 2 / 153 B → 10 / 1,097 B |
+| pairing_events | 21 s | 20,845,271 | 2 / 153 B → 10 / 1,097 B |
+
+Corpus growth is the runner-local coverage corpus reported by libFuzzer; these generated corpus files were not committed. A bounded smoke run is not exhaustive fuzzing or security validation.
+
+### Dependency and security artifacts
+
+- cargo audit 0.22.2: passed; checked 170 locked crate dependencies against 1,290 loaded RustSec advisories, with no reported advisory.
+- cargo deny check 0.20.2: passed configured advisory, ban, license, and source checks. It emitted duplicate-version warnings (cpufeatures, getrandom, r-efi, syn, windows-sys) and license-metadata-not-encountered warnings; those remain cleanup items.
+- CycloneDX 1.5 JSON SBOM: generated and uploaded as artifact phase2-cyclonedx-sbom (22,990 bytes; SHA-256 27a5fc36b14548007c5ed76c36f9bb22746918878c1f45a3628e1cc96a5833c9).
+- Gitleaks Action delta scan: passed, scanned approximately 112 bytes, no leaks.
+- Pinned Gitleaks v8.24.3 full-history scan: passed, scanned 12 commits / approximately 289.88 KB, no leaks. SARIF artifact gitleaks-full-history was uploaded (artifact ID 11430786925; SHA-256 dc99f5f987115b584a04543f4e70ee593a56a58adbd3cef7ad2e6521e8dc3b66).
+
+### Secure-store validation boundaries
+
+- Windows Credential Manager: the disposable-target integration test ran against the real Windows Credential Manager APIs. It verified missing/read/write/read-back, CRED_PERSIST_LOCAL_MACHINE, malformed record rejection, explicit deletion, and missing-record deletion error. It does not touch the production credential target.
+- Linux Secret Service: the isolated live GNOME Keyring round-trip passed as noted above; unit tests also cover fixed non-identifying attributes and locked, prompt-denied, and unavailable error mapping.
+- OS-level injected failures for Credential Manager and Secret Service were not injected. Do not describe fault injection as completed. These tests establish adapter/runtime behavior for the exercised cases, not every OS service failure mode.
+
+## Phase 2 status and remaining risks
+
+Phase 2 validation gates are complete for this revision. This is a protocol/core milestone, not a claim of production readiness or a substitute for independent security review.
+
+Remaining risks and follow-up work:
+
+- No third-party protocol/implementation security review has been completed. Review pairing state transitions, Noise wrapper behavior, crypto vectors, and dependency choices before a v1 release claim.
+- OS keystore fault injection and non-GNOME Secret Service implementations remain unverified.
+- Fuzzing was bounded smoke testing only; continue longer fuzzing and review evolving corpus findings.
+- Independent interoperability vectors and cross-implementation pairing checks remain open.
+- Android, PWA, UI, clipboard/file integrations, and later transports remain outside Phase 2.
+
+cargo fmt, strict Clippy, locked tests/builds, audit/deny, SBOM, secret scanning, and all four bounded fuzz targets have completed on the hosted run above. No unexecuted job is counted as passing.

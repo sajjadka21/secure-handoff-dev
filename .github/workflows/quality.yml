@@ -28,6 +28,17 @@ jobs:
         run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
       - name: Tests
         run: cargo test --workspace --locked
+      - name: Secret Service integration (Ubuntu)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dbus gnome-keyring
+          dbus-run-session -- bash -euo pipefail -c '
+            export HOME="${RUNNER_TEMP}/clipbridge-keyring"
+            mkdir -p "$HOME"
+            eval "$(printf "\\n" | gnome-keyring-daemon --unlock --components=secrets)"
+            cargo test -p clipcore linux::tests::secret_service_real_backend_round_trip_in_isolated_session -- --ignored
+          '
       - name: Debug build
         run: cargo build --workspace --locked
       - name: Release build
@@ -101,3 +112,4 @@ jobs:
           name: gitleaks-full-history
           path: gitleaks-history.sarif
           if-no-files-found: error
+

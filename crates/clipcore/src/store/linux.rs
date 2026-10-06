@@ -184,4 +184,3 @@ mod tests {
         assert!(store.read().unwrap().is_none());
     }
 }
-

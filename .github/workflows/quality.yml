@@ -40,6 +40,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: nightly-2026-10-05
+          components: rustfmt
       - uses: Swatinem/rust-cache@v2.9.2
       - name: Check fuzz source formatting
         run: cargo fmt --manifest-path fuzz/Cargo.toml -- --check
@@ -90,3 +91,4 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_ENABLE_COMMENTS: false
+

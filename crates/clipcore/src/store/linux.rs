@@ -157,4 +157,28 @@ mod tests {
             IdentityError::StoreUnavailable
         ));
     }
+
+    #[test]
+    #[ignore = "requires an isolated, disposable Secret Service session"]
+    fn secret_service_real_backend_round_trip_in_isolated_session() {
+        let store = LinuxSecretServiceStore;
+        assert!(\n            store.read().unwrap().is_none(),\n            "refusing to overwrite an existing identity"\n        );
+
+        struct Cleanup;
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                let _ = LinuxSecretServiceStore.delete();
+            }
+        }
+
+        let _cleanup = Cleanup;
+        let identity = DeviceIdentity::generate().unwrap();
+        let record = identity.to_record();
+        store.write(&record).unwrap();
+        let loaded = store.read().unwrap().unwrap();
+        assert_eq!(&*loaded, record.as_slice());
+        store.delete().unwrap();
+        assert!(store.read().unwrap().is_none());
+    }
 }
+

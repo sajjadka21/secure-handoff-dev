@@ -91,4 +91,13 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_ENABLE_COMMENTS: false
-
+      - name: Install pinned Gitleaks CLI for full-history scan
+        run: go install github.com/zricethezav/gitleaks/v8@v8.24.3
+      - name: Scan all repository history with Gitleaks
+        run: |
+          "$(go env GOPATH)/bin/gitleaks" git --log-opts="--all" --redact --exit-code=2 --report-format=sarif --report-path=gitleaks-history.sarif .
+      - uses: actions/upload-artifact@v7
+        with:
+          name: gitleaks-full-history
+          path: gitleaks-history.sarif
+          if-no-files-found: error

@@ -188,7 +188,7 @@ private fun HomeScreen(
     var targetExpanded by remember { mutableStateOf(false) }
     var sending by remember { mutableStateOf(false) }
     var sendStatus by remember { mutableStateOf<String?>(null) }
-    var receiveEndpoint by rememberSaveable { mutableStateOf<String?>(null) }
+    var receiveEndpoint by remember { mutableStateOf<String?>(null) }
     var receivedText by remember { mutableStateOf<Pair<String, String>?>(null) }
     val activityStore = remember(context) { ActivityStore(context) }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
@@ -410,8 +410,9 @@ private fun DevicesScreen(padding: PaddingValues, identityState: IdentityState, 
     var devices by remember { mutableStateOf(emptyList<TrustedDeviceMetadata>()) }
     var revokeTarget by remember { mutableStateOf<TrustedDeviceMetadata?>(null) }
     var label by rememberSaveable { mutableStateOf("Windows device") }
-    var invitationPayload by rememberSaveable { mutableStateOf("") }
-    var sas by rememberSaveable { mutableStateOf<String?>(null) }
+    // QR payloads contain a short-lived invitation nonce and must not enter saved UI state.
+    var invitationPayload by remember { mutableStateOf("") }
+    var sas by remember { mutableStateOf<String?>(null) }
     var pairingBusy by rememberSaveable { mutableStateOf(false) }
     var pairingMessage by rememberSaveable { mutableStateOf<String?>(null) }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
@@ -460,11 +461,16 @@ private fun DevicesScreen(padding: PaddingValues, identityState: IdentityState, 
                         val result = withContext(Dispatchers.IO) {
                             runCatching {
                                 val bytes = invitationPayload.hexToBytesStrict()
-                                NativeCore.nativeJoinPairing(bytes, label)
-                                    ?: error("Pairing could not start. Check the invitation and LAN connection.")
+                                val joined = try {
+                                    NativeCore.nativeJoinPairing(bytes, label)
+                                } finally {
+                                    bytes.fill(0)
+                                }
+                                joined ?: error("Pairing could not start. Check the invitation and LAN connection.")
                             }.getOrElse { error -> error.message ?: "Pairing could not start." }
                         }
                         pairingBusy = false
+                        invitationPayload = ""
                         if (result.contains('\t')) sas = result.substringBefore('\t') else pairingMessage = result
                         if (!result.contains('\t')) ActivityStore(context).record(ActivityKind.PAIRING_FAILED, label, "unknown", ActivityResult.FAILED)
                     }

@@ -189,9 +189,9 @@ pub extern "system" fn Java_org_clipbridge_android_core_NativeCore_nativeJoinPai
     mut env: JNIEnv<'_>, _class: JClass<'_>, payload: JByteArray<'_>, label: JString<'_>,
 ) -> jstring {
     if PRIVACY_PAUSED.load(Ordering::Acquire) { return std::ptr::null_mut(); }
-    let Ok(payload) = env.convert_byte_array(&payload) else { return std::ptr::null_mut() };
+    let Ok(payload) = env.convert_byte_array(&payload).map(Zeroizing::new) else { return std::ptr::null_mut() };
     if payload.len() > clipcore::qr::QR_MAX_BYTES { return std::ptr::null_mut(); }
-    let Ok(qr) = clipcore::qr::PairingQr::decode(&payload) else { return std::ptr::null_mut() };
+    let Ok(qr) = clipcore::qr::PairingQr::decode(payload.as_slice()) else { return std::ptr::null_mut() };
     let Ok(label) = utf8_string(&mut env, &label) else { return std::ptr::null_mut() };
     let label = label.trim();
     if label.is_empty() || label.len() > 64 || label.chars().any(char::is_control) { return std::ptr::null_mut(); }

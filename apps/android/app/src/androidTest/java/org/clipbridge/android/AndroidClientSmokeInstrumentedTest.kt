@@ -1,6 +1,6 @@
 package org.clipbridge.android
 
-import androidx.compose.ui.test.assertExists
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
@@ -24,10 +24,10 @@ class AndroidClientSmokeInstrumentedTest {
 
     @Test
     fun appLaunchesAndNavigatesToTrustedDevices() {
-        composeRule.onNodeWithText("ClipBridge").assertExists()
-        composeRule.onNodeWithText("Clipboard").assertExists()
+        composeRule.onNodeWithText("ClipBridge").assertIsDisplayed()
+        composeRule.onNodeWithText("Clipboard").assertIsDisplayed()
         composeRule.onAllNodesWithText("Devices")[0].performClick()
-        composeRule.onNodeWithText("Trusted devices").assertExists()
+        composeRule.onNodeWithText("Trusted devices").assertIsDisplayed()
     }
 
     @Test

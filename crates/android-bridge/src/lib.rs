@@ -147,7 +147,7 @@ pub extern "system" fn Java_org_clipbridge_android_core_NativeCore_nativeInstall
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_org_clipbridge_android_core_NativeCore_nativeOpenTrustDb(
-    env: JNIEnv<'_>,
+    mut env: JNIEnv<'_>,
     _class: JClass<'_>,
     path: JString<'_>,
 ) -> jboolean {

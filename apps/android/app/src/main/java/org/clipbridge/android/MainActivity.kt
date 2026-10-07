@@ -214,7 +214,8 @@ private fun HomeScreen(
     androidx.compose.runtime.LaunchedEffect(trustStore) {
         devices = trustStore?.let { runCatching { it.list() }.getOrDefault(emptyList()) } ?: emptyList()
     }
-    val selectedDevice = devices.firstOrNull { it.deviceId.joinToString("") { byte -> "%02x".format(byte) } == selectedDeviceId }
+    val sendableDevices = devices.filterNot { it.needsRepair }
+    val selectedDevice = sendableDevices.firstOrNull { it.deviceId.joinToString("") { byte -> "%02x".format(byte) } == selectedDeviceId }
     val startReceiver = {
         val address = context.activeLanIpv4()
         if (address == null) sendStatus = "No active Wi-Fi or Ethernet LAN address is available."
@@ -243,7 +244,7 @@ private fun HomeScreen(
         val device = selectedDevice ?: run { sendStatus = "Choose a trusted device first."; return }
         if (device.needsRepair) { sendStatus = "This device needs repair. Revoke it and pair again."; return }
         sending = true
-        sendStatus = "Connecting · LAN Direct · encrypted application session"
+        sendStatus = "Connecting · verifying trusted device"
         scope.launch {
             val result = withContext(Dispatchers.IO) {
                 runCatching { NativeCore.nativeSendText(endpoint, device.deviceId, text) ?: "connection_failed" }
@@ -297,12 +298,12 @@ private fun HomeScreen(
             }) { Text("Stop") }
         }
         receiveEndpoint?.let { Text("Foreground receiver active · $it", style = MaterialTheme.typography.bodySmall) }
-        OutlinedButton(onClick = { targetExpanded = true }, enabled = devices.isNotEmpty(), modifier = Modifier.fillMaxWidth()) {
-            Text(selectedDevice?.label ?: if (devices.isEmpty()) "No trusted devices" else "Choose a trusted device")
+        OutlinedButton(onClick = { targetExpanded = true }, enabled = sendableDevices.isNotEmpty(), modifier = Modifier.fillMaxWidth()) {
+            Text(selectedDevice?.label ?: if (sendableDevices.isEmpty()) "No send-ready trusted devices" else "Choose a trusted device")
         }
         DropdownMenu(expanded = targetExpanded, onDismissRequest = { targetExpanded = false }) {
-            devices.forEach { device ->
-                DropdownMenuItem(text = { Text("${device.label}${if (device.needsRepair) " · Needs repair" else ""}") }, onClick = {
+            sendableDevices.forEach { device ->
+                DropdownMenuItem(text = { Text(device.label) }, onClick = {
                     selectedDeviceId = device.deviceId.joinToString("") { "%02x".format(it) }
                     targetExpanded = false
                 })

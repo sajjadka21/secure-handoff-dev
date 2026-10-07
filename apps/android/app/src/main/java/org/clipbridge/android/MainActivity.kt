@@ -3,8 +3,15 @@ package org.clipbridge.android
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.Manifest
+import android.content.pm.PackageManager
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -25,6 +32,9 @@ import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -37,6 +47,7 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -50,11 +61,22 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
+import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
+import com.google.mlkit.vision.barcode.common.Barcode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import org.clipbridge.android.core.AndroidIdentityStore
+import org.clipbridge.android.core.AndroidTrustStore
+import org.clipbridge.android.core.NativeCore
 import org.clipbridge.android.core.SafeIdentityMetadata
+import org.clipbridge.android.core.TrustedDeviceMetadata
 
 private enum class Destination(val title: String, val icon: ImageVector) {
     Home("Home", Icons.Outlined.Home),
@@ -65,7 +87,7 @@ private enum class Destination(val title: String, val icon: ImageVector) {
 
 private sealed interface IdentityState {
     data object Loading : IdentityState
-    data class Ready(val metadata: SafeIdentityMetadata) : IdentityState
+    data class Ready(val metadata: SafeIdentityMetadata, val trustStore: AndroidTrustStore) : IdentityState
     data class Unavailable(val reason: String) : IdentityState
 }
 
@@ -77,8 +99,13 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             identityState = try {
                 withContext(Dispatchers.IO) {
-                    AndroidIdentityStore(applicationContext).loadOrCreate()
-                }.let { IdentityState.Ready(it) }
+                    val metadata = AndroidIdentityStore(applicationContext).loadOrCreate()
+                    val trustStore = AndroidTrustStore(applicationContext)
+                    NativeCore.requireAvailable()
+                    check(trustStore.open()) { "trust_store_unavailable" }
+                    NativeCore.nativeSetPrivacyPaused(preferences.getBoolean("privacy_paused", false))
+                    IdentityState.Ready(metadata, trustStore)
+                }
             } catch (_: Exception) {
                 IdentityState.Unavailable("Secure identity is unavailable. Check Android Keystore and restart the app.")
             }
@@ -110,13 +137,15 @@ class MainActivity : ComponentActivity() {
                             padding = padding,
                             context = this@MainActivity,
                             identityState = identityState,
+                            trustStore = (identityState as? IdentityState.Ready)?.trustStore,
                             paused = paused,
                             onPause = {
                                 paused = !paused
                                 preferences.edit().putBoolean("privacy_paused", paused).apply()
+                                NativeCore.nativeSetPrivacyPaused(paused)
                             },
                         )
-                        Destination.Devices -> DevicesScreen(padding, identityState)
+                        Destination.Devices -> DevicesScreen(padding, identityState, this@MainActivity, paused)
                         Destination.Activity -> ActivityScreen(padding)
                         Destination.Settings -> SettingsScreen(
                             padding = padding,
@@ -124,6 +153,7 @@ class MainActivity : ComponentActivity() {
                             onPause = {
                                 paused = !paused
                                 preferences.edit().putBoolean("privacy_paused", paused).apply()
+                                NativeCore.nativeSetPrivacyPaused(paused)
                             },
                             onAppearance = { appearance = it; preferences.edit().putString("appearance", it).apply() },
                             appearance = appearance,
@@ -142,6 +172,7 @@ private fun HomeScreen(
     padding: PaddingValues,
     context: Context,
     identityState: IdentityState,
+    trustStore: AndroidTrustStore?,
     paused: Boolean,
     onPause: () -> Unit,
 ) {
@@ -150,6 +181,73 @@ private fun HomeScreen(
     var clipboardText by remember { mutableStateOf<String?>(null) }
     var clipboardError by remember { mutableStateOf<String?>(null) }
     var clipboardReadAttempted by remember { mutableStateOf(false) }
+    var devices by remember { mutableStateOf(emptyList<TrustedDeviceMetadata>()) }
+    var selectedDeviceId by rememberSaveable { mutableStateOf("") }
+    var endpoint by rememberSaveable { mutableStateOf("") }
+    var targetExpanded by remember { mutableStateOf(false) }
+    var sending by remember { mutableStateOf(false) }
+    var sendStatus by remember { mutableStateOf<String?>(null) }
+    var receiveEndpoint by rememberSaveable { mutableStateOf<String?>(null) }
+    var receivedText by remember { mutableStateOf<Pair<String, String>?>(null) }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) {
+                NativeCore.nativeStopReceiver()
+                receiveEndpoint = null
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    androidx.compose.runtime.LaunchedEffect(trustStore) {
+        devices = trustStore?.let { runCatching { it.list() }.getOrDefault(emptyList()) } ?: emptyList()
+    }
+    val selectedDevice = devices.firstOrNull { it.deviceId.joinToString("") { byte -> "%02x".format(byte) } == selectedDeviceId }
+    val startReceiver = {
+        val address = context.activeLanIpv4()
+        if (address == null) sendStatus = "No active Wi-Fi or Ethernet LAN address is available."
+        else scope.launch {
+            receiveEndpoint = withContext(Dispatchers.IO) { NativeCore.nativeStartReceiver("$address:0") }
+            if (receiveEndpoint == null) sendStatus = "Could not start the foreground LAN receiver. Check local network permission."
+        }
+    }
+    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) startReceiver() else sendStatus = "Nearby devices permission is required for local network access."
+    }
+    androidx.compose.runtime.LaunchedEffect(receiveEndpoint, paused) {
+        if (receiveEndpoint != null && !paused) {
+            while (isActive) {
+                val frame = withContext(Dispatchers.IO) { NativeCore.nativeReceiveText() }
+                if (frame != null) {
+                    runCatching { decodeIncoming(frame) }.onSuccess { receivedText = it }
+                    frame.fill(0)
+                } else delay(350)
+            }
+        }
+    }
+    fun send(text: String) {
+        if (paused) { sendStatus = "Privacy Pause is on. Resume before sending."; return }
+        val device = selectedDevice ?: run { sendStatus = "Choose a trusted device first."; return }
+        if (device.needsRepair) { sendStatus = "This device needs repair. Revoke it and pair again."; return }
+        sending = true
+        sendStatus = "Connecting · LAN Direct · encrypted application session"
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching { NativeCore.nativeSendText(endpoint, device.deviceId, text) ?: "connection_failed" }
+                    .getOrElse { "connection_failed" }
+            }
+            sending = false
+            sendStatus = when (result) {
+                "sent" -> "Sent · Encrypted · LAN Direct"
+                "privacy_paused" -> "Privacy Pause is on. Resume before sending."
+                "peer_untrusted" -> "This device is not trusted. Pair it first."
+                "payload_too_large" -> "Text is larger than the supported limit."
+                else -> "Send failed · Check the address, trust state, and LAN connection."
+            }
+        }
+    }
     Column(
         Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -169,8 +267,33 @@ private fun HomeScreen(
                 Tab(selected = tab == index, onClick = { tab = index }, text = { Text(label) })
             }
         }
+        Text("Destination", style = MaterialTheme.typography.titleSmall)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = {
+                if (Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission(Manifest.permission.NEARBY_WIFI_DEVICES) != PackageManager.PERMISSION_GRANTED) {
+                    permissionLauncher.launch(Manifest.permission.NEARBY_WIFI_DEVICES)
+                } else startReceiver()
+            }, enabled = receiveEndpoint == null && !paused, modifier = Modifier.weight(1f)) { Text("Enable receiving") }
+            if (receiveEndpoint != null) OutlinedButton(onClick = {
+                NativeCore.nativeStopReceiver()
+                receiveEndpoint = null
+            }) { Text("Stop") }
+        }
+        receiveEndpoint?.let { Text("Foreground receiver active · $it", style = MaterialTheme.typography.bodySmall) }
+        OutlinedButton(onClick = { targetExpanded = true }, enabled = devices.isNotEmpty(), modifier = Modifier.fillMaxWidth()) {
+            Text(selectedDevice?.label ?: if (devices.isEmpty()) "No trusted devices" else "Choose a trusted device")
+        }
+        DropdownMenu(expanded = targetExpanded, onDismissRequest = { targetExpanded = false }) {
+            devices.forEach { device ->
+                DropdownMenuItem(text = { Text("${device.label}${if (device.needsRepair) " · Needs repair" else ""}") }, onClick = {
+                    selectedDeviceId = device.deviceId.joinToString("") { "%02x".format(it) }
+                    targetExpanded = false
+                })
+            }
+        }
+        OutlinedTextField(value = endpoint, onValueChange = { endpoint = it.take(128) }, label = { Text("Trusted device LAN address") }, placeholder = { Text("192.168.1.20:45678") }, singleLine = true, modifier = Modifier.fillMaxWidth())
         if (tab == 0) {
-            Text("Read the clipboard explicitly to preview it. Sending becomes available after pairing and LAN are integrated.", style = MaterialTheme.typography.bodyMedium)
+            Text("Read the clipboard explicitly to preview it. ClipBridge never polls in the background.", style = MaterialTheme.typography.bodyMedium)
             OutlinedButton(onClick = {
                 clipboardReadAttempted = true
                 clipboardError = null
@@ -196,8 +319,7 @@ private fun HomeScreen(
                 else "Not read",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Button(onClick = {}, enabled = false, modifier = Modifier.fillMaxWidth()) { Text("Send") }
-            Text("Pairing and LAN transfer are not connected in this build.", style = MaterialTheme.typography.bodySmall)
+            Button(onClick = { clipboardText?.let(::send) }, enabled = clipboardText != null && selectedDevice != null && endpoint.isNotBlank() && !sending && !paused, modifier = Modifier.fillMaxWidth()) { Text(if (sending) "Sending…" else "Send Clipboard") }
             OutlinedButton(onClick = {
                 clipboardText?.let { context.copyToClipboard("ClipBridge text", it) }
             }, enabled = clipboardText != null, modifier = Modifier.fillMaxWidth()) { Text("Copy") }
@@ -214,12 +336,49 @@ private fun HomeScreen(
                 },
                 minLines = 6,
             )
-            Button(onClick = {}, enabled = false, modifier = Modifier.fillMaxWidth()) { Text("Send") }
-            Text("A trusted device and an authenticated LAN session are required. This build does not yet provide pairing or transfer.", style = MaterialTheme.typography.bodySmall)
+            Button(onClick = { send(composeText) }, enabled = composeText.isNotEmpty() && selectedDevice != null && endpoint.isNotBlank() && !sending && !paused, modifier = Modifier.fillMaxWidth()) { Text(if (sending) "Sending…" else "Send") }
+            Text("${composeText.toByteArray(Charsets.UTF_8).size} bytes · ${TextClassifier.classify(composeText)}", style = MaterialTheme.typography.bodySmall)
             OutlinedButton(onClick = { composeText = "" }, modifier = Modifier.fillMaxWidth()) { Text("Clear") }
         }
+        sendStatus?.let { Text(it, color = if (it.startsWith("Sent")) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) }
+    }
+    receivedText?.let { (sender, text) ->
+        AlertDialog(
+            onDismissRequest = { receivedText = null },
+            title = { Text("Text received from $sender") },
+            text = { Text(text.take(6000), style = MaterialTheme.typography.bodyMedium) },
+            confirmButton = { Button(onClick = { context.copyToClipboard("ClipBridge received text", text); receivedText = null }) { Text("Copy") } },
+            dismissButton = { OutlinedButton(onClick = { receivedText = null }) { Text("Close") } },
+        )
     }
 }
+
+private fun Context.activeLanIpv4(): String? {
+    val manager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+    val network = manager.activeNetwork ?: return null
+    val capabilities = manager.getNetworkCapabilities(network) ?: return null
+    if (!capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) && !capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) return null
+    return manager.getLinkProperties(network)?.linkAddresses?.asSequence()?.map { it.address }
+        ?.filterIsInstance<java.net.Inet4Address>()
+        ?.firstOrNull { it.isSiteLocalAddress && !it.isLoopbackAddress && !it.isAnyLocalAddress }
+        ?.hostAddress
+}
+
+private fun decodeIncoming(encoded: ByteArray): Pair<String, String> {
+    require(encoded.size >= 38) { "invalid_message" }
+    val buffer = java.nio.ByteBuffer.wrap(encoded).order(java.nio.ByteOrder.BIG_ENDIAN)
+    val peer = ByteArray(32).also { buffer.get(it) }
+    val labelLength = buffer.short.toInt() and 0xffff
+    require(labelLength <= 64 && buffer.remaining() >= labelLength + 4) { "invalid_message" }
+    val label = ByteArray(labelLength).also { buffer.get(it) }.toString(Charsets.UTF_8)
+    val textLength = buffer.int
+    require(textLength in 0..clipcoreMaxTextBytes() && buffer.remaining() == textLength) { "invalid_message" }
+    val text = ByteArray(textLength).also { buffer.get(it) }.toString(Charsets.UTF_8)
+    peer.fill(0)
+    return label to text
+}
+
+private fun clipcoreMaxTextBytes() = 65_484
 
 @Composable
 private fun StatusCard(identityState: IdentityState, paused: Boolean) {
@@ -237,19 +396,137 @@ private fun StatusCard(identityState: IdentityState, paused: Boolean) {
 }
 
 @Composable
-private fun DevicesScreen(padding: PaddingValues, identityState: IdentityState) {
+private fun DevicesScreen(padding: PaddingValues, identityState: IdentityState, context: ComponentActivity, paused: Boolean) {
+    var devices by remember { mutableStateOf(emptyList<TrustedDeviceMetadata>()) }
+    var revokeTarget by remember { mutableStateOf<TrustedDeviceMetadata?>(null) }
+    var label by rememberSaveable { mutableStateOf("Windows device") }
+    var invitationPayload by rememberSaveable { mutableStateOf("") }
+    var sas by rememberSaveable { mutableStateOf<String?>(null) }
+    var pairingBusy by rememberSaveable { mutableStateOf(false) }
+    var pairingMessage by rememberSaveable { mutableStateOf<String?>(null) }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val trustStore = (identityState as? IdentityState.Ready)?.trustStore
+    androidx.compose.runtime.LaunchedEffect(trustStore) {
+        devices = trustStore?.let { runCatching { it.list() }.getOrDefault(emptyList()) } ?: emptyList()
+    }
     Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text("Devices", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
         Text("Trusted devices", style = MaterialTheme.typography.titleMedium)
-        Text("Trusted-device storage is not connected in this build.", style = MaterialTheme.typography.bodyLarge)
+        if (devices.isEmpty()) Text("No trusted devices yet.", style = MaterialTheme.typography.bodyLarge)
+        devices.forEach { device ->
+            Card {
+                Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(device.label, style = MaterialTheme.typography.titleMedium)
+                    Text(if (device.needsRepair) "Needs repair" else "Trusted · Offline", style = MaterialTheme.typography.bodyMedium)
+                    Text("Fingerprint ${device.deviceId.joinToString("") { "%02x".format(it) }.take(12)} · Protocol ${device.minimumProtocol}", style = MaterialTheme.typography.bodySmall)
+                    OutlinedButton(onClick = { revokeTarget = device }) { Text("Revoke trust") }
+                }
+            }
+        }
         Card {
             Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Add a device", style = MaterialTheme.typography.titleSmall)
-            Text("Pairing and the trust database are not connected in this build. No nearby device is shown as trusted.")
-                Button(onClick = {}, enabled = false, modifier = Modifier.fillMaxWidth()) { Text("Pairing unavailable") }
+                Text("Scan the issuer’s current QR invitation. A nearby device is not trusted until both people compare and approve the same code.")
+                OutlinedTextField(value = label, onValueChange = { label = it.take(64) }, label = { Text("Name this Windows device") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                Button(onClick = {
+                    if (paused) {
+                        pairingMessage = "Turn off Privacy Pause before pairing."
+                    } else {
+                        val scanOptions = GmsBarcodeScannerOptions.Builder()
+                            .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
+                            .enableAutoZoom()
+                            .build()
+                        GmsBarcodeScanning.getClient(context, scanOptions).startScan()
+                            .addOnSuccessListener { barcode -> barcode.rawValue?.let { invitationPayload = it; pairingMessage = null } }
+                            .addOnFailureListener { pairingMessage = "QR scan could not start. Paste the invitation payload below." }
+                    }
+                }, enabled = !pairingBusy, modifier = Modifier.fillMaxWidth()) { Text("Scan pairing QR") }
+                Text("You can also paste the text encoded by the actual QR invitation.", style = MaterialTheme.typography.bodySmall)
+                OutlinedTextField(value = invitationPayload, onValueChange = { invitationPayload = it.take(1024) }, label = { Text("Invitation payload") }, minLines = 2, modifier = Modifier.fillMaxWidth())
+                Button(onClick = {
+                    pairingBusy = true
+                    pairingMessage = null
+                    scope.launch {
+                        val result = withContext(Dispatchers.IO) {
+                            runCatching {
+                                val bytes = invitationPayload.hexToBytesStrict()
+                                NativeCore.nativeJoinPairing(bytes, label)
+                                    ?: error("Pairing could not start. Check the invitation and LAN connection.")
+                            }.getOrElse { error -> error.message ?: "Pairing could not start." }
+                        }
+                        pairingBusy = false
+                        if (result.contains('\t')) sas = result.substringBefore('\t') else pairingMessage = result
+                    }
+                }, enabled = !paused && !pairingBusy && invitationPayload.isNotBlank() && label.isNotBlank(), modifier = Modifier.fillMaxWidth()) {
+                    Text(if (pairingBusy) "Connecting…" else "Verify issuer and compare code")
+                }
+                pairingMessage?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                if (pairingBusy) Text("Verifying the issuer and establishing an authenticated encrypted session…", style = MaterialTheme.typography.bodySmall)
             }
         }
     }
+    sas?.let { code ->
+        AlertDialog(
+            onDismissRequest = { pairingMessage = "Choose whether the codes match before leaving this step." },
+            title = { Text("Compare this code") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Compare this code with the issuer on the other device.")
+                    Text(code, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, modifier = Modifier.semantics { contentDescription = "Pairing code $code" })
+                    Text("Only continue when both screens show exactly the same code.", style = MaterialTheme.typography.bodySmall)
+                }
+            },
+            confirmButton = {
+                Button(enabled = !pairingBusy, onClick = {
+                    pairingBusy = true
+                    scope.launch {
+                        val result = withContext(Dispatchers.IO) { runCatching { NativeCore.nativeConfirmPairing(true) ?: "pairing_incomplete" }.getOrElse { "pairing_incomplete" } }
+                        pairingBusy = false
+                        sas = null
+                        if (result == "trusted") {
+                            pairingMessage = "Device trusted. The issuer’s confirmation and acknowledgement were verified."
+                            devices = runCatching { trustStore?.list().orEmpty() }.getOrDefault(emptyList())
+                        } else {
+                            pairingMessage = if (result == "pairing_needs_repair") "Pairing incomplete. Revoke stale trust and pair again with a fresh QR." else "Pairing incomplete. No device was trusted; retry with a fresh invitation."
+                        }
+                    }
+                }) { Text(if (pairingBusy) "Verifying…" else "Codes match") }
+            },
+            dismissButton = {
+                OutlinedButton(enabled = !pairingBusy, onClick = {
+                    pairingBusy = true
+                    scope.launch {
+                        withContext(Dispatchers.IO) { NativeCore.nativeConfirmPairing(false) }
+                        sas = null
+                        pairingBusy = false
+                        pairingMessage = "Pairing cancelled because the codes did not match. No trust was added."
+                    }
+                }) { Text("Doesn’t match") }
+            },
+        )
+    }
+    revokeTarget?.let { device ->
+        AlertDialog(
+            onDismissRequest = { revokeTarget = null },
+            title = { Text("Revoke ${device.label}?") },
+            text = { Text("This device will no longer be able to send or receive protected text. Pair again to restore trust.") },
+            confirmButton = {
+                Button(onClick = {
+                    scope.launch {
+                        val revoked = withContext(Dispatchers.IO) { trustStore?.revoke(device) == true }
+                        if (revoked) devices = trustStore?.let { runCatching { it.list() }.getOrDefault(emptyList()) }.orEmpty()
+                        revokeTarget = null
+                    }
+                }) { Text("Revoke trust") }
+            },
+            dismissButton = { OutlinedButton(onClick = { revokeTarget = null }) { Text("Cancel") } },
+        )
+    }
+}
+
+private fun String.hexToBytesStrict(): ByteArray {
+    require(length in 2..1024 && length % 2 == 0 && all { it.isDigit() || it.lowercaseChar() in 'a'..'f' }) { "invalid_pairing_input" }
+    return chunked(2).map { it.toInt(16).toByte() }.toByteArray()
 }
 
 @Composable

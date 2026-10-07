@@ -11,12 +11,35 @@ data class SafeDiagnostics(
     val lastErrorCode: String,
 )
 
+private val ALLOWED_ERROR_CODES = setOf(
+    "none",
+    "secure_store_unavailable",
+    "trust_store_unavailable",
+    "identity_unavailable",
+    "invalid_endpoint",
+    "endpoint_not_lan",
+    "invalid_device",
+    "invalid_text",
+    "payload_too_large",
+    "privacy_paused",
+    "connection_failed",
+    "peer_untrusted",
+    "peer_revoked",
+    "protocol_incompatible",
+    "auth_failed",
+    "send_failed",
+    "pairing_state_error",
+    "pairing_not_ready",
+    "pairing_incomplete",
+    "pairing_needs_repair",
+)
+
 fun serializeDiagnostics(value: SafeDiagnostics): String {
     val version = value.appVersion.takeIf { it.matches(Regex("[A-Za-z0-9._+-]{1,32}")) } ?: "unknown"
     val identity = value.identityState.takeIf { it in setOf("ready", "unavailable", "loading") } ?: "unavailable"
     val trust = value.trustStoreState.takeIf { it in setOf("ready", "unavailable") } ?: "unavailable"
     val listener = value.listenerState.takeIf { it in setOf("active", "inactive") } ?: "inactive"
-    val error = value.lastErrorCode.takeIf { it.matches(Regex("[a-z0-9_]{1,48}")) } ?: "none"
+    val error = value.lastErrorCode.takeIf { it in ALLOWED_ERROR_CODES } ?: "none"
     return listOf(
         "app_version=$version",
         "os=Android",
@@ -31,3 +54,4 @@ fun serializeDiagnostics(value: SafeDiagnostics): String {
         "last_error=$error",
     ).joinToString("\n")
 }
+

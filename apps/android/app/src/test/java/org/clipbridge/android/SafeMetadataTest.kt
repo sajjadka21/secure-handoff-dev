@@ -21,5 +21,7 @@ class SafeMetadataTest {
         assertFalse(report.contains("private-key"))
         assertFalse(report.contains("192.168.0.1"))
         assertFalse(report.contains("clipboard_contents"))
+        assertTrue(report.contains("last_error=none"))
     }
 }
+

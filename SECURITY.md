@@ -21,6 +21,10 @@ The core uses `snow` 0.10.x implementing Noise with an explicitly narrowed defau
 
 The QR parser uses a fixed-shape bounded preflight before `cbor2` allocates owned values; it then rejects duplicate/missing/unknown fields and requires deterministic re-encoding to match the input. The fixed protocol vector is tested. The preceding Phase 2 validation record reports successful bounded Linux fuzz runs for all four targets; longer fuzzing and parser review remain release work, not proof of security.
 
+### Current dependency-policy exception
+
+The Phase 3 Linux system-tray dependency chain currently brings `proc-macro-error` and five `unic-*` crates reported as unmaintained by RustSec; the hosted `cargo deny` output reports no safe upgrade for these transitive crates. `deny.toml` ignores only those six specific unmaintained advisory IDs with this reason, leaving other advisory checks at their existing strict levels. The same run reported a GLib unsoundness advisory as a warning; it is not ignored. Revisit the exceptions when the Tauri/Linux tray dependency chain changes. The desktop's local `clipcore` path dependency declares its matching `0.1.0` package version so the wildcard ban remains enabled. `Apache-2.0 WITH LLVM-exception` is explicitly allowed for the transitive `target-lexicon` crate.
+
 ## Internal name
 “ClipBridge” is an internal codename only and is not approved for public product branding, package IDs, domains, or releases. The existing v1 protocol prologue/name is a wire identifier and remains unchanged by a product-name decision; any wire-identifier change requires its own protocol compatibility review and version.
 

@@ -147,7 +147,7 @@ pub extern "system" fn Java_org_clipbridge_android_core_NativeCore_nativeInstall
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_org_clipbridge_android_core_NativeCore_nativeOpenTrustDb(
-    mut env: JNIEnv<'_>,
+    env: JNIEnv<'_>,
     _class: JClass<'_>,
     path: JString<'_>,
 ) -> jboolean {
@@ -174,7 +174,7 @@ pub extern "system" fn Java_org_clipbridge_android_core_NativeCore_nativeOpenTru
 /// protocol floor, timestamp, and a one-byte trusted/needs-repair state.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_org_clipbridge_android_core_NativeCore_nativeListTrustedDevices(
-    mut env: JNIEnv<'_>,
+    env: JNIEnv<'_>,
     _class: JClass<'_>,
 ) -> jbyteArray {
     let Ok(devices) = with_trust(|db| db.list_devices()) else {
@@ -212,13 +212,12 @@ pub extern "system" fn Java_org_clipbridge_android_core_NativeCore_nativeSetPriv
     paused: jboolean,
 ) {
     PRIVACY_PAUSED.store(paused != 0, Ordering::Release);
-    if paused != 0 {
-        if let Some(pending) = PENDING_PAIRING
+    if paused != 0
+        && let Some(pending) = PENDING_PAIRING
             .get()
             .and_then(|slot| slot.lock().ok()?.take())
-        {
-            drop(pending);
-        }
+    {
+        drop(pending);
     }
 }
 
@@ -311,7 +310,7 @@ pub extern "system" fn Java_org_clipbridge_android_core_NativeCore_nativeJoinPai
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_org_clipbridge_android_core_NativeCore_nativeConfirmPairing(
-    mut env: JNIEnv<'_>,
+    env: JNIEnv<'_>,
     _class: JClass<'_>,
     accepted: jboolean,
 ) -> jstring {
@@ -542,10 +541,10 @@ pub extern "system" fn Java_org_clipbridge_android_core_NativeCore_nativeStopRec
     _env: JNIEnv<'_>,
     _class: JClass<'_>,
 ) {
-    if let Some(slot) = LAN_LISTENER.get() {
-        if let Ok(mut current) = slot.lock() {
-            *current = None;
-        }
+    if let Some(slot) = LAN_LISTENER.get()
+        && let Ok(mut current) = slot.lock()
+    {
+        *current = None;
     }
 }
 
@@ -694,3 +693,4 @@ mod tests {
         assert!(!is_allowed_lan_bind(IpAddr::V6(Ipv6Addr::UNSPECIFIED)));
     }
 }
+

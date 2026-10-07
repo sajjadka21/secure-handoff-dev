@@ -87,13 +87,26 @@ fn hex(bytes: &[u8]) -> String {
     out
 }
 
-fn is_allowed_lan_bind(ip: std::net::IpAddr) -> bool {
+fn is_allowed_lan_address(ip: std::net::IpAddr) -> bool {
     match ip {
         std::net::IpAddr::V4(value) => value.is_private() || value.is_loopback(),
         std::net::IpAddr::V6(value) => {
             value.is_loopback() || (value.segments()[0] & 0xfe00) == 0xfc00
         }
     }
+}
+
+fn parse_lan_endpoint(value: &str) -> Result<SocketAddr, &'static str> {
+    if value.len() > 128 {
+        return Err("invalid_endpoint");
+    }
+    let endpoint = value
+        .parse::<SocketAddr>()
+        .map_err(|_| "invalid_endpoint")?;
+    if endpoint.port() == 0 || !is_allowed_lan_address(endpoint.ip()) {
+        return Err("endpoint_not_lan");
+    }
+    Ok(endpoint)
 }
 
 #[unsafe(no_mangle)]
@@ -250,7 +263,7 @@ pub extern "system" fn Java_org_clipbridge_android_core_NativeCore_nativeJoinPai
     let Some(endpoint) = qr
         .endpoints
         .first()
-        .and_then(|v| v.parse::<SocketAddr>().ok())
+        .and_then(|v| parse_lan_endpoint(v).ok())
     else {
         return std::ptr::null_mut();
     };
@@ -456,9 +469,7 @@ pub extern "system" fn Java_org_clipbridge_android_core_NativeCore_nativeSendTex
     }
     let result = (|| -> Result<(), &'static str> {
         let endpoint = utf8_string(&mut env, &endpoint).map_err(|_| "invalid_endpoint")?;
-        let endpoint = endpoint
-            .parse::<SocketAddr>()
-            .map_err(|_| "invalid_endpoint")?;
+        let endpoint = parse_lan_endpoint(&endpoint)?;
         let id_bytes = env
             .convert_byte_array(&device_id)
             .map_err(|_| "invalid_device")?;
@@ -515,7 +526,7 @@ pub extern "system" fn Java_org_clipbridge_android_core_NativeCore_nativeStartRe
     let Ok(address) = bind_address.parse::<SocketAddr>() else {
         return std::ptr::null_mut();
     };
-    if !is_allowed_lan_bind(address.ip()) || address.port() != 0 {
+    if !is_allowed_lan_address(address.ip()) || address.port() != 0 {
         return std::ptr::null_mut();
     }
     let Ok(listener) = TcpListener::bind(address) else {
@@ -682,15 +693,27 @@ mod tests {
     #[test]
     fn listener_bind_policy_allows_local_and_rejects_unspecified_or_public_addresses() {
         use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-        assert!(is_allowed_lan_bind(IpAddr::V4(Ipv4Addr::new(
+        assert!(is_allowed_lan_address(IpAddr::V4(Ipv4Addr::new(
             192, 168, 1, 4
         ))));
-        assert!(is_allowed_lan_bind(IpAddr::V4(Ipv4Addr::LOCALHOST)));
-        assert!(is_allowed_lan_bind(IpAddr::V6(Ipv6Addr::LOCALHOST)));
-        assert!(is_allowed_lan_bind(IpAddr::V6("fd00::1".parse().unwrap())));
-        assert!(!is_allowed_lan_bind(IpAddr::V4(Ipv4Addr::UNSPECIFIED)));
-        assert!(!is_allowed_lan_bind(IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8))));
-        assert!(!is_allowed_lan_bind(IpAddr::V6(Ipv6Addr::UNSPECIFIED)));
+        assert!(is_allowed_lan_address(IpAddr::V4(Ipv4Addr::LOCALHOST)));
+        assert!(is_allowed_lan_address(IpAddr::V6(Ipv6Addr::LOCALHOST)));
+        assert!(is_allowed_lan_address(IpAddr::V6("fd00::1".parse().unwrap())));
+        assert!(!is_allowed_lan_address(IpAddr::V4(Ipv4Addr::UNSPECIFIED)));
+        assert!(!is_allowed_lan_address(IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8))));
+        assert!(!is_allowed_lan_address(IpAddr::V6(Ipv6Addr::UNSPECIFIED)));
+    }
+
+    #[test]
+    fn manual_endpoint_parser_accepts_only_bounded_private_lan_endpoints() {
+        assert_eq!(
+            parse_lan_endpoint("192.168.1.8:43123").unwrap().port(),
+            43123
+        );
+        assert!(parse_lan_endpoint("127.0.0.1:43123").is_ok());
+        assert!(parse_lan_endpoint("8.8.8.8:43123").is_err());
+        assert!(parse_lan_endpoint("192.168.1.8:0").is_err());
+        assert!(parse_lan_endpoint(&format!("{}:43123", "1".repeat(129))).is_err());
     }
 }
 

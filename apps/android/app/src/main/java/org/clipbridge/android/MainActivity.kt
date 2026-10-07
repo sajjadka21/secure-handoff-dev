@@ -194,15 +194,22 @@ private fun HomeScreen(
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
+        val stopReceiver = {
+            runCatching { NativeCore.nativeStopReceiver() }
+            context.getSharedPreferences("runtime", Context.MODE_PRIVATE)
+                .edit().putBoolean("receiver_active", false).apply()
+            receiveEndpoint = null
+        }
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_STOP) {
-                runCatching { NativeCore.nativeStopReceiver() }
-                context.getSharedPreferences("runtime", Context.MODE_PRIVATE).edit().putBoolean("receiver_active", false).apply()
-                receiveEndpoint = null
+                stopReceiver()
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            stopReceiver()
+        }
     }
     androidx.compose.runtime.LaunchedEffect(trustStore) {
         devices = trustStore?.let { runCatching { it.list() }.getOrDefault(emptyList()) } ?: emptyList()
@@ -674,3 +681,4 @@ private fun ClipBridgeTheme(darkTheme: Boolean, content: @Composable () -> Unit)
     }
     MaterialTheme(colorScheme = colors, content = content)
 }
+

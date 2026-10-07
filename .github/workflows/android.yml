@@ -39,6 +39,7 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.1.0'
+          validate-wrappers: true
       - name: Android unit tests, lint and debug package
         run: gradle --no-daemon -p apps/android testDebugUnitTest lint assembleDebug
       - name: Android Keystore instrumentation test

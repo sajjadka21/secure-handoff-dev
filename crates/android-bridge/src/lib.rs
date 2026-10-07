@@ -44,13 +44,13 @@ pub extern "system" fn Java_org_clipbridge_android_core_NativeCore_nativeGenerat
         return std::ptr::null_mut();
     };
     let record = Zeroizing::new(identity.to_record());
-    env.byte_array_from_slice(&record)
+    env.byte_array_from_slice(&record[..])
         .map_or(std::ptr::null_mut(), |array| array.into_raw())
 }
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_org_clipbridge_android_core_NativeCore_nativeIdentityMetadata(
-    mut env: JNIEnv<'_>,
+    env: JNIEnv<'_>,
     _class: JClass<'_>,
     record: JByteArray<'_>,
 ) -> jbyteArray {
@@ -66,7 +66,7 @@ pub extern "system" fn Java_org_clipbridge_android_core_NativeCore_nativeIdentit
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_org_clipbridge_android_core_NativeCore_nativeInstallIdentityRecord(
-    mut env: JNIEnv<'_>,
+    env: JNIEnv<'_>,
     _class: JClass<'_>,
     record: JByteArray<'_>,
 ) -> jbyteArray {
@@ -124,3 +124,4 @@ mod tests {
         ));
     }
 }
+

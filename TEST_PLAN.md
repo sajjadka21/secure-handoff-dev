@@ -110,7 +110,7 @@ cargo fmt, strict Clippy, locked tests/builds, audit/deny, SBOM, secret scanning
 - `npm run build`: **PASS** — TypeScript check plus Vite production build.
 - `npm test -- --reporter=dot`: **PASS** — 9 frontend tests.
 - `npm audit`: **PASS** — 0 vulnerabilities after aligning Tauri JS package versions and updating Vitest.
-- Ubuntu 24.04 debug/release/Tauri builds and Linux app launch: **NOT EXECUTED** locally; CI workflow is configured but no current Phase 3 workflow run has been observed.
+- Ubuntu 24.04 debug/release/Tauri builds and Linux app launch: **NOT EXECUTED** locally. Hosted Windows/Ubuntu compile and build results are recorded in run #17 below; native Linux app launch and compositor-specific runtime validation remain open.
 - Two-instance Tauri app pairing/transfer, actual manual clipboard transfer, tray interaction, native Windows secure-store failure injection, and revocation/Pause runtime behavior: **NOT EXECUTED** end to end.
 - Real app screenshot: `apps/desktop/ui-review-home.png`. It was reviewed after the contrast adjustment; headings are now readable. A right-edge layout/cropping issue remains visible at the captured size despite responsive spacing changes. Pairing, SAS, Devices, Settings, diagnostics, and other window-size screenshots remain outstanding.
 
@@ -128,8 +128,22 @@ This is a separate revalidation pass; results below do not overwrite the earlier
 - Tauri dev launch: Rust backend compiled and a process was spawned, but startup logged `identity startup failed: identity_store_error`; no successful identity-startup or usable-window claim is made. The available UI inspection API could not expose the native window, and local browser access to the dev server was unavailable.
 - Screenshots: **NONE captured in this pass**. The pre-existing `apps/desktop/ui-review-home.png` was reviewed and shows the prior clipping issue. CSS was adjusted in production styles to remove fixed-width pressure and the grid's right offset, but this correction is not visually verified.
 - Two-instance E2E, tray, manual clipboard transfer, revocation/Pause runtime flow: **NOT EXECUTED** in this pass.
-- Ubuntu Phase 3 debug/release/Tauri/Secret Service validation: **NOT EXECUTED** in this pass.
-- GitHub Actions: **NOT EXECUTED**. `gh auth status` reported the saved account token invalid; the repository run-list request returned HTTP 404. No new workflow run ID exists from this pass.
+- Ubuntu Phase 3 debug/release/Tauri/Secret Service validation: **NOT EXECUTED** locally in this pass; hosted build/integration results are recorded in run #17 below.
+- GitHub Actions: **NOT EXECUTED** at the time of this local revalidation. GitHub CLI authentication was invalid in that pass; later hosted runs #16 and #17 are recorded below.
 - `git diff --check`: **PASS** after the documentation sweep; Git emitted only line-ending normalization warnings. No CI or end-to-end result is inferred from source inspection.
 
-Phase 3 remains OPEN. The revalidation did not meet the acceptance criteria for real-app screenshot QA, two-client transfer, tray operation, frontend tests/build, Linux build/runtime, or a completed CI matrix. Earlier recorded successes remain historical evidence only and do not resolve these open gates.
+Phase 3 remains OPEN. That local revalidation attempt did not meet the acceptance criteria for real-app screenshot QA, two-client transfer, tray operation, frontend tests/build, Linux build/runtime, or hosted CI. Hosted run #17 later passed the build, test, and CI gates listed below; it does not close the remaining native runtime/E2E/visual gates.
+
+## Phase 3 hosted validation — GitHub Actions run #17
+
+Run [#17](https://github.com/sajjadka21/secure-handoff-dev/actions/runs/37606419345), commit `ce5fa3fb2de2f9ad4c06496df63043f18e85de76`, completed successfully on 2026-10-07. All seven jobs passed.
+
+- Windows 2022 quality: `cargo fmt`, strict Clippy, locked tests, debug build, and release build passed. Test binaries reported 4 desktop tests, 31 core tests, and 2 process integration tests passing.
+- Ubuntu 24.04 quality: the same format, Clippy, locked test, debug, and release gates passed. The ordinary test set reported 30 passed and 1 ignored in the 31-test core binary, plus 2 process integration tests. The separate isolated GNOME Keyring Secret Service test passed (1/1).
+- Windows and Ubuntu desktop jobs: `npm ci`, `npm audit` (0 vulnerabilities), frontend tests (9/9), TypeScript/Vite production build, Tauri `cargo check --all-targets`, and Tauri debug build passed on both runners.
+- Fuzz: all four targets completed bounded 21-second runs with no job failure or crash. Executions reported: `qr` 4,636,035; `envelope` 8,681,709; `pairing_control` 11,889,036; `pairing_events` 11,535,692. This remains bounded smoke testing, not exhaustive security validation.
+- `cargo audit`, `cargo deny check`, CycloneDX SBOM upload, Gitleaks delta scan, and full-history Gitleaks scan passed. The SBOM and Gitleaks reports were uploaded as workflow artifacts. `cargo deny` uses the six documented, targeted unmaintained-advisory exceptions added for the Linux Tauri tray GTK3 dependency chain; other advisory, bans, license, and source checks remain enabled. One unmatched-license-allowance warning remains informational.
+
+The initial Phase 3 run [#16](https://github.com/sajjadka21/secure-handoff-dev/actions/runs/37605899263), commit `876677acba5e05de8b58f497682e4b003b084baa`, passed Windows/Ubuntu quality and desktop jobs, fuzz, and security-artifact jobs, but its dependency-policy job failed on the desktop's unversioned local `clipcore` path dependency, six unmaintained Linux tray transitives, and an Apache/LLVM license expression. These were corrected without removing gates; run #17 is the completed passing rerun.
+
+Hosted CI now verifies cross-platform compilation, tests, frontend, Tauri, fuzz, and dependency/security gates. Phase 3 remains **OPEN**: real two-client pairing/SAS/text and clipboard transfer, trust persistence/revocation/Pause behavior, native tray interaction, fresh real-app screenshot and clipping confirmation, accessibility review, and Linux desktop launch/real compositor behavior have not been demonstrated.

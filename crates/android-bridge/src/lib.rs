@@ -78,6 +78,13 @@ fn hex(bytes: &[u8]) -> String {
     out
 }
 
+fn is_allowed_lan_bind(ip: std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(value) => value.is_private() || value.is_loopback(),
+        std::net::IpAddr::V6(value) => value.is_loopback() || (value.segments()[0] & 0xfe00) == 0xfc00,
+    }
+}
+
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_org_clipbridge_android_core_NativeCore_nativeGenerateIdentityRecord(
     env: JNIEnv<'_>,
@@ -194,6 +201,7 @@ pub extern "system" fn Java_org_clipbridge_android_core_NativeCore_nativeJoinPai
     let Ok(mut stream) = TcpStream::connect_timeout(&endpoint, Duration::from_secs(8)) else { return std::ptr::null_mut() };
     if stream.set_read_timeout(Some(Duration::from_secs(15))).is_err() || stream.set_write_timeout(Some(Duration::from_secs(15))).is_err() { return std::ptr::null_mut(); }
     let Ok(handshake) = clipcore::session::establish_pairing(&mut stream, &identity, &qr, true, clipcore::CURRENT_PROTOCOL_VERSION) else { return std::ptr::null_mut() };
+    if PRIVACY_PAUSED.load(Ordering::Acquire) { return std::ptr::null_mut(); }
     let transaction = clipcore::pairing::PairingTransaction::from_verified_handshake(&identity, &handshake, label.to_owned());
     let view = format!("{}\t{}", transaction.sas(), hex(transaction.peer_id()));
     let slot = PENDING_PAIRING.get_or_init(|| Mutex::new(None));
@@ -241,7 +249,7 @@ pub extern "system" fn Java_org_clipbridge_android_core_NativeCore_nativeConfirm
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_org_clipbridge_android_core_NativeCore_nativeRevokeDevice(
-    mut env: JNIEnv<'_>, _class: JClass<'_>, device_id: JByteArray<'_>, public_key: JByteArray<'_>,
+    env: JNIEnv<'_>, _class: JClass<'_>, device_id: JByteArray<'_>, public_key: JByteArray<'_>,
 ) -> jboolean {
     let Ok(device_id) = env.convert_byte_array(&device_id) else { return 0 };
     let Ok(public_key) = env.convert_byte_array(&public_key) else { return 0 };
@@ -262,7 +270,7 @@ pub extern "system" fn Java_org_clipbridge_android_core_NativeCore_nativeSendTex
         let text = utf8_string(&mut env, &text).map_err(|_| "invalid_text")?;
         if text.is_empty() || text.len() > clipcore::MAX_TEXT_BYTES { return Err("payload_too_large"); }
         let identity_record = ANDROID_IDENTITY.get().and_then(|slot| slot.lock().ok()?.as_ref().map(|v| Zeroizing::new(v.to_record()))).ok_or("identity_unavailable")?;
-        let identity = DeviceIdentity::from_record(&identity_record).map_err(|_| "identity_unavailable")?;
+        let identity = DeviceIdentity::from_record(identity_record.as_ref()).map_err(|_| "identity_unavailable")?;
         let trust = trust_db_arc().ok_or("trust_store_unavailable")?;
         let mut session = clipcore::transport::TrustedLanSession::connect(endpoint, &identity, id, &trust, clipcore::CURRENT_PROTOCOL_VERSION).map_err(|_| "connection_failed")?;
         if PRIVACY_PAUSED.load(Ordering::Acquire) { return Err("privacy_paused"); }
@@ -280,8 +288,7 @@ pub extern "system" fn Java_org_clipbridge_android_core_NativeCore_nativeStartRe
     if PRIVACY_PAUSED.load(Ordering::Acquire) { return std::ptr::null_mut(); }
     let Ok(bind_address) = utf8_string(&mut env, &bind_address) else { return std::ptr::null_mut() };
     let Ok(address) = bind_address.parse::<SocketAddr>() else { return std::ptr::null_mut() };
-    let ip = address.ip();
-    if !(ip.is_private() || ip.is_loopback()) || address.port() != 0 { return std::ptr::null_mut(); }
+    if !is_allowed_lan_bind(address.ip()) || address.port() != 0 { return std::ptr::null_mut(); }
     let Ok(listener) = TcpListener::bind(address) else { return std::ptr::null_mut() };
     if listener.set_nonblocking(true).is_err() { return std::ptr::null_mut(); }
     let Ok(local) = listener.local_addr() else { return std::ptr::null_mut() };
@@ -305,7 +312,7 @@ pub extern "system" fn Java_org_clipbridge_android_core_NativeCore_nativeStopRec
 /// Privacy Pause check. The encoded result contains public peer metadata and the one-shot text.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_org_clipbridge_android_core_NativeCore_nativeReceiveText(
-    mut env: JNIEnv<'_>, _class: JClass<'_>,
+    env: JNIEnv<'_>, _class: JClass<'_>,
 ) -> jbyteArray {
     if PRIVACY_PAUSED.load(Ordering::Acquire) { return std::ptr::null_mut(); }
     let accepted = {
@@ -378,5 +385,17 @@ mod tests {
             install_identity(&second_record, &mut slot),
             Err(clipcore::identity::IdentityError::AlreadyExists)
         ));
+    }
+
+    #[test]
+    fn listener_bind_policy_allows_local_and_rejects_unspecified_or_public_addresses() {
+        use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+        assert!(is_allowed_lan_bind(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 4))));
+        assert!(is_allowed_lan_bind(IpAddr::V4(Ipv4Addr::LOCALHOST)));
+        assert!(is_allowed_lan_bind(IpAddr::V6(Ipv6Addr::LOCALHOST)));
+        assert!(is_allowed_lan_bind(IpAddr::V6("fd00::1".parse().unwrap())));
+        assert!(!is_allowed_lan_bind(IpAddr::V4(Ipv4Addr::UNSPECIFIED)));
+        assert!(!is_allowed_lan_bind(IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8))));
+        assert!(!is_allowed_lan_bind(IpAddr::V6(Ipv6Addr::UNSPECIFIED)));
     }
 }

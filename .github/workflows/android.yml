@@ -21,7 +21,7 @@ jobs:
         with:
           packages: platform-tools
       - name: Install Android SDK and NDK
-        run: sdkmanager --install "platforms;android-37" "build-tools;36.0.0" "ndk;28.2.13676358"
+        run: sdkmanager --install "platforms;android-36" "build-tools;36.0.0" "ndk;28.2.13676358"
       - name: Configure Android NDK for Cargo
         run: |
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/28.2.13676358" >> "$GITHUB_ENV"
@@ -38,7 +38,7 @@ jobs:
         run: cargo test -p clipbridge-android-bridge --locked
       - uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '9.4.1'
+          gradle-version: '9.1.0'
           validate-wrappers: true
       - name: Android unit tests, lint and debug package
         run: gradle --no-daemon -p apps/android testDebugUnitTest lint assembleDebug

@@ -3,15 +3,11 @@ package org.clipbridge.android
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.Manifest
-import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -74,6 +70,11 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import org.clipbridge.android.core.AndroidIdentityStore
 import org.clipbridge.android.core.AndroidTrustStore
+import org.clipbridge.android.core.ActivityKind
+import org.clipbridge.android.core.ActivityResult
+import org.clipbridge.android.core.ActivityStore
+import org.clipbridge.android.core.SafeDiagnostics
+import org.clipbridge.android.core.serializeDiagnostics
 import org.clipbridge.android.core.NativeCore
 import org.clipbridge.android.core.SafeIdentityMetadata
 import org.clipbridge.android.core.TrustedDeviceMetadata
@@ -142,18 +143,18 @@ class MainActivity : ComponentActivity() {
                             onPause = {
                                 paused = !paused
                                 preferences.edit().putBoolean("privacy_paused", paused).apply()
-                                NativeCore.nativeSetPrivacyPaused(paused)
+                                runCatching { NativeCore.nativeSetPrivacyPaused(paused) }
                             },
                         )
                         Destination.Devices -> DevicesScreen(padding, identityState, this@MainActivity, paused)
-                        Destination.Activity -> ActivityScreen(padding)
+                        Destination.Activity -> ActivityScreen(padding, this@MainActivity)
                         Destination.Settings -> SettingsScreen(
                             padding = padding,
                             paused = paused,
                             onPause = {
                                 paused = !paused
                                 preferences.edit().putBoolean("privacy_paused", paused).apply()
-                                NativeCore.nativeSetPrivacyPaused(paused)
+                                runCatching { NativeCore.nativeSetPrivacyPaused(paused) }
                             },
                             onAppearance = { appearance = it; preferences.edit().putString("appearance", it).apply() },
                             appearance = appearance,
@@ -189,12 +190,14 @@ private fun HomeScreen(
     var sendStatus by remember { mutableStateOf<String?>(null) }
     var receiveEndpoint by rememberSaveable { mutableStateOf<String?>(null) }
     var receivedText by remember { mutableStateOf<Pair<String, String>?>(null) }
+    val activityStore = remember(context) { ActivityStore(context) }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_STOP) {
-                NativeCore.nativeStopReceiver()
+                runCatching { NativeCore.nativeStopReceiver() }
+                context.getSharedPreferences("runtime", Context.MODE_PRIVATE).edit().putBoolean("receiver_active", false).apply()
                 receiveEndpoint = null
             }
         }
@@ -210,18 +213,19 @@ private fun HomeScreen(
         if (address == null) sendStatus = "No active Wi-Fi or Ethernet LAN address is available."
         else scope.launch {
             receiveEndpoint = withContext(Dispatchers.IO) { NativeCore.nativeStartReceiver("$address:0") }
-            if (receiveEndpoint == null) sendStatus = "Could not start the foreground LAN receiver. Check local network permission."
+            context.getSharedPreferences("runtime", Context.MODE_PRIVATE).edit().putBoolean("receiver_active", receiveEndpoint != null).apply()
+            if (receiveEndpoint == null) sendStatus = "Could not start the foreground LAN receiver. Check the active Wi-Fi or Ethernet connection."
         }
-    }
-    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) startReceiver() else sendStatus = "Nearby devices permission is required for local network access."
     }
     androidx.compose.runtime.LaunchedEffect(receiveEndpoint, paused) {
         if (receiveEndpoint != null && !paused) {
             while (isActive) {
                 val frame = withContext(Dispatchers.IO) { NativeCore.nativeReceiveText() }
                 if (frame != null) {
-                    runCatching { decodeIncoming(frame) }.onSuccess { receivedText = it }
+                    runCatching { decodeIncoming(frame) }.onSuccess {
+                        receivedText = it
+                        activityStore.record(ActivityKind.TEXT_RECEIVED, it.first, "LAN Direct", ActivityResult.SUCCESS)
+                    }
                     frame.fill(0)
                 } else delay(350)
             }
@@ -239,6 +243,15 @@ private fun HomeScreen(
                     .getOrElse { "connection_failed" }
             }
             sending = false
+            context.getSharedPreferences("runtime", Context.MODE_PRIVATE).edit()
+                .putString("last_error", if (result == "sent") "none" else result)
+                .apply()
+            activityStore.record(
+                if (result == "sent") ActivityKind.TEXT_SENT else ActivityKind.CONNECTION_FAILED,
+                device.label,
+                if (result == "sent") "LAN Direct" else "unknown",
+                if (result == "sent") ActivityResult.SUCCESS else ActivityResult.FAILED,
+            )
             sendStatus = when (result) {
                 "sent" -> "Sent · Encrypted · LAN Direct"
                 "privacy_paused" -> "Privacy Pause is on. Resume before sending."
@@ -269,13 +282,10 @@ private fun HomeScreen(
         }
         Text("Destination", style = MaterialTheme.typography.titleSmall)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = {
-                if (Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission(Manifest.permission.NEARBY_WIFI_DEVICES) != PackageManager.PERMISSION_GRANTED) {
-                    permissionLauncher.launch(Manifest.permission.NEARBY_WIFI_DEVICES)
-                } else startReceiver()
-            }, enabled = receiveEndpoint == null && !paused, modifier = Modifier.weight(1f)) { Text("Enable receiving") }
+            OutlinedButton(onClick = startReceiver, enabled = receiveEndpoint == null && !paused, modifier = Modifier.weight(1f)) { Text("Enable receiving") }
             if (receiveEndpoint != null) OutlinedButton(onClick = {
-                NativeCore.nativeStopReceiver()
+                runCatching { NativeCore.nativeStopReceiver() }
+                context.getSharedPreferences("runtime", Context.MODE_PRIVATE).edit().putBoolean("receiver_active", false).apply()
                 receiveEndpoint = null
             }) { Text("Stop") }
         }
@@ -384,10 +394,10 @@ private fun clipcoreMaxTextBytes() = 65_484
 private fun StatusCard(identityState: IdentityState, paused: Boolean) {
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(if (paused) "Paused" else "Setup incomplete", style = MaterialTheme.typography.titleMedium)
+                Text(if (paused) "Paused" else "Ready for a trusted device", style = MaterialTheme.typography.titleMedium)
             when (identityState) {
                 IdentityState.Loading -> Text("Loading protected device identity…")
-                is IdentityState.Ready -> Text("Android · identity ${identityState.metadata.shortFingerprint} · LAN transfer unavailable")
+                is IdentityState.Ready -> Text("Android · identity ${identityState.metadata.shortFingerprint} · LAN text handoff available")
                 is IdentityState.Unavailable -> Text(identityState.reason, color = MaterialTheme.colorScheme.error)
             }
             Text("Transport availability does not mean a device is trusted.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -456,6 +466,7 @@ private fun DevicesScreen(padding: PaddingValues, identityState: IdentityState, 
                         }
                         pairingBusy = false
                         if (result.contains('\t')) sas = result.substringBefore('\t') else pairingMessage = result
+                        if (!result.contains('\t')) ActivityStore(context).record(ActivityKind.PAIRING_FAILED, label, "unknown", ActivityResult.FAILED)
                     }
                 }, enabled = !paused && !pairingBusy && invitationPayload.isNotBlank() && label.isNotBlank(), modifier = Modifier.fillMaxWidth()) {
                     Text(if (pairingBusy) "Connecting…" else "Verify issuer and compare code")
@@ -484,6 +495,7 @@ private fun DevicesScreen(padding: PaddingValues, identityState: IdentityState, 
                         pairingBusy = false
                         sas = null
                         if (result == "trusted") {
+                            ActivityStore(context).record(ActivityKind.PAIRING_COMPLETED, label, "LAN Direct", ActivityResult.SUCCESS)
                             pairingMessage = "Device trusted. The issuer’s confirmation and acknowledgement were verified."
                             devices = runCatching { trustStore?.list().orEmpty() }.getOrDefault(emptyList())
                         } else {
@@ -500,6 +512,7 @@ private fun DevicesScreen(padding: PaddingValues, identityState: IdentityState, 
                         sas = null
                         pairingBusy = false
                         pairingMessage = "Pairing cancelled because the codes did not match. No trust was added."
+                        ActivityStore(context).record(ActivityKind.PAIRING_FAILED, label, "unknown", ActivityResult.FAILED)
                     }
                 }) { Text("Doesn’t match") }
             },
@@ -514,7 +527,10 @@ private fun DevicesScreen(padding: PaddingValues, identityState: IdentityState, 
                 Button(onClick = {
                     scope.launch {
                         val revoked = withContext(Dispatchers.IO) { trustStore?.revoke(device) == true }
-                        if (revoked) devices = trustStore?.let { runCatching { it.list() }.getOrDefault(emptyList()) }.orEmpty()
+                        if (revoked) {
+                            devices = trustStore?.let { runCatching { it.list() }.getOrDefault(emptyList()) }.orEmpty()
+                            ActivityStore(context).record(ActivityKind.DEVICE_REVOKED, device.label, "unknown", ActivityResult.SUCCESS)
+                        }
                         revokeTarget = null
                     }
                 }) { Text("Revoke trust") }
@@ -530,12 +546,23 @@ private fun String.hexToBytesStrict(): ByteArray {
 }
 
 @Composable
-private fun ActivityScreen(padding: PaddingValues) {
+private fun ActivityScreen(padding: PaddingValues, context: Context) {
+    var events by remember { mutableStateOf(ActivityStore(context).list()) }
+    androidx.compose.runtime.LaunchedEffect(Unit) { events = ActivityStore(context).list() }
     Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Activity", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
         Text("Activity contains transfer metadata only. Content history is off.", style = MaterialTheme.typography.bodyMedium)
         HorizontalDivider()
-        Text("No activity yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (events.isEmpty()) Text("No activity yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        events.forEach { event ->
+            Card {
+                Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(event.kind.label, style = MaterialTheme.typography.titleSmall)
+                    Text(event.deviceLabel.ifBlank { "Device" }, style = MaterialTheme.typography.bodyMedium)
+                    Text("${event.route} · ${event.result.value} · ${android.text.format.DateUtils.getRelativeTimeSpanString(event.timestampMillis)}", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
     }
 }
 
@@ -558,7 +585,7 @@ private fun SettingsScreen(
                 Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("Privacy & Security", style = MaterialTheme.typography.titleMedium)
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) { Text("Privacy Pause"); Text("Blocks new pairing and transfer when those flows are available.", style = MaterialTheme.typography.bodySmall) }
+                        Column(Modifier.weight(1f)) { Text("Privacy Pause"); Text("Blocks outgoing sends, pairing, and incoming text delivery while enabled.", style = MaterialTheme.typography.bodySmall) }
                         Switch(
                             checked = paused,
                             onCheckedChange = { onPause() },
@@ -580,12 +607,12 @@ private fun SettingsScreen(
                 }
             }
             OutlinedButton(onClick = { section = "Help & Diagnostics" }, modifier = Modifier.fillMaxWidth()) { Text("Help & diagnostics") }
-            Text("Android build foundation · pairing and LAN transfer are not available yet.", style = MaterialTheme.typography.bodySmall)
+            Text("LAN text handoff is available with explicit pairing and a foreground receiver. Background receiving and auto-sync are off.", style = MaterialTheme.typography.bodySmall)
         } else {
             OutlinedButton(onClick = { section = "Settings" }, modifier = Modifier.fillMaxWidth()) { Text("Back to Settings") }
             Text("Help", style = MaterialTheme.typography.titleMedium)
             Text("Android reads clipboard data only while this app is focused. Use Read Clipboard after opening ClipBridge; no background polling is performed.")
-            Text("Pairing, trusted-device management, and LAN troubleshooting will appear when those Rust-backed flows are integrated.")
+            Text("Scan the current Windows pairing QR, compare the code on both devices, then approve only when it matches. LAN uses a manual endpoint and a fresh authenticated encrypted session for each text handoff.")
             HorizontalDivider()
             Text("Diagnostics", style = MaterialTheme.typography.titleMedium)
             val identity = when (identityState) {
@@ -593,7 +620,19 @@ private fun SettingsScreen(
                 is IdentityState.Ready -> "protected_identity_ready"
                 is IdentityState.Unavailable -> "protected_identity_unavailable"
             }
-            val report = "app_version=0.1.0\nos=Android\nprotocol_version=1\nidentity=$identity\ntrust_store=unavailable\nroute=unavailable\nsession=inactive\nprivacy_paused=$paused"
+            val trustStatus = if (identityState is IdentityState.Ready) "ready" else "unavailable"
+            val report = serializeDiagnostics(
+                SafeDiagnostics(
+                    appVersion = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() ?: "unknown",
+                    androidApi = Build.VERSION.SDK_INT,
+                    identityState = identity.removePrefix("protected_identity_"),
+                    trustStoreState = trustStatus,
+                    listenerState = if (context.getSharedPreferences("runtime", Context.MODE_PRIVATE).getBoolean("receiver_active", false)) "active" else "inactive",
+                    privacyPaused = paused,
+                    lastErrorCode = if (identityState is IdentityState.Unavailable) "secure_store_unavailable"
+                        else context.getSharedPreferences("runtime", Context.MODE_PRIVATE).getString("last_error", "none") ?: "none",
+                ),
+            )
             Text(report, style = MaterialTheme.typography.bodySmall)
             OutlinedButton(onClick = {
                 context.copyToClipboard("ClipBridge diagnostics", report)

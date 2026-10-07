@@ -8,7 +8,7 @@ Phase 3 Windows cross-device E2E remains **OPEN** because an independent second 
 
 ## Phase 4 Android foundation status
 
-`apps/android` now contains a Kotlin/Jetpack Compose shell and explicit foreground clipboard read/Compose surfaces. `crates/android-bridge` delegates identity generation and validation to `clipcore`; identity is persisted as Android Keystore AES-GCM ciphertext in app-private no-backup storage. The UI keeps pairing, devices, and transfer unavailable until their real core integrations exist. Android Gradle/Keystore emulator checks and Windows ↔ Android runtime E2E are pending; see `ROADMAP.md` and `TEST_PLAN.md`.
+`apps/android` contains a Kotlin/Jetpack Compose client source with Keystore-protected identity, QR joining, transcript SAS confirmation, clipcore trust/revocation, foreground LAN receive, and encrypted one-shot text send. It supports Compose and explicitly read clipboard text through the same trusted LAN transport. Android CI has not yet compiled this revision; pairing, runtime send/receive, and Keystore behavior remain unverified until hosted build/emulator and real-device checks pass. See `ROADMAP.md` and `TEST_PLAN.md`.
 
 ## Phase 3 desktop implementation status
 

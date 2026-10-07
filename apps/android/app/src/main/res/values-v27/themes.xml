@@ -4,7 +4,7 @@
         <item name="android:colorAccent">#315DA8</item>
         <item name="android:windowLightStatusBar">true</item>
         <item name="android:statusBarColor">#F7F8FA</item>
-        <!-- API 26 has no light navigation-bar icon mode, so use a dark surface there. -->
-        <item name="android:navigationBarColor">#202124</item>
+        <item name="android:navigationBarColor">#F7F8FA</item>
+        <item name="android:windowLightNavigationBar">true</item>
     </style>
 </resources>

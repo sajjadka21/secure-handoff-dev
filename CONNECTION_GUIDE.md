@@ -1,18 +1,25 @@
 # Connection Guide
 
+## Desktop connection guide status
+
+The desktop currently supports QR-bound pairing and encrypted text transfer over LAN TCP. Add Device creates a real expiring invitation and displays transcript-derived SAS for comparison. Trusted devices remain Offline until a transfer session is active; no discovery is implemented, so the app does not fabricate a Nearby list. WebRTC, Cloudflare signaling, TURN, Bluetooth, and Nearby are unavailable.
+
+`clipcore` provides Noise XX, invitation-bound pairing, QR v1 parsing, transcript SAS, authenticated pairing controls, trust checks, and encrypted text envelopes. The desktop now uses these for pairing and one-shot LAN sessions; each session checks the local trust/revocation database before application data. At present, users share the issuer's displayed LAN address separately and enter the destination address manually. No route fallback is implemented. Relay must remain opt-in, capped, and independent of any assumed free tier when introduced.
+
+Clipboard reading/writing is user initiated using the native clipboard plugin. Linux reports X11 or Wayland from session environment variables; no global Linux clipboard monitoring is implemented or implied. Wayland clipboard operations remain subject to compositor behavior and must surface OS denial. iOS/iPadOS PWA has a separate foreground/user-gesture threat model and is not part of this desktop build.
+
 ## Methods and status
 
-| Route | Intended pairings | Current Phase 1 status | Required security |
+| Route | Intended pairings | Current desktop status | Required security |
 |---|---|---|---|
-| LAN TCP | Native platforms on reachable network | Implemented only in Phase 1 CLI prototype; loopback tested, not a packaged client | Noise XX + manually pinned identity |
+| LAN TCP | Windows/Linux desktop on a reachable local network | Implemented in the desktop; endpoint is currently entered/shared manually. Cross-platform app E2E is still pending. | Noise XX + local trust/revocation gate + encrypted envelope |
 | Nearby Connections | Android-supported peers | Planned; not implemented | Same Noise session above route |
 | Bluetooth/BLE | Native peers where OS APIs and payload needs fit | Planned; not implemented | Same Noise session; BLE is not trust |
 | WebRTC DataChannel | Cross-network native/PWA peers | Planned; not implemented | Noise in addition to WebRTC DTLS |
 | Cloudflare signaling | WebRTC rendezvous | Planned; no deployment | No content; ephemeral bounded messages |
 | Cloudflare TURN | Connectivity fallback | Planned; not implemented | Noise records only; explicit budget cap |
 
-## Planned pairing and connection
-Production pairing has not yet been implemented; this section defines the expected flow. Phase 1 CLI instead requires manual full-fingerprint pinning and process-lifetime identities.
+## Desktop pairing and connection
 
 1. On the issuer choose Add device. The issuer creates one random 128-bit nonce held only in process memory, shows a QR for at most 120 seconds on a monotonic clock, and invalidates any prior QR. Restarting the issuer invalidates the QR.
 2. The joining device scans and strictly validates canonical CBOR bounds, schema version, and the issuer's key fingerprint. The QR contains the issuer key, not the joiner key. Endpoints and discovered devices remain untrusted hints.
@@ -20,15 +27,16 @@ Production pairing has not yet been implemented; this section defines the expect
 4. Both show the same transcript-derived verification string. Each person compares it locally and confirms. Both devices then exchange authenticated PAIR_CONFIRM and PAIR_ACK messages.
 5. Each device commits trust only after its local validation predicate passes and its local trust transaction succeeds. The two local stores cannot be committed atomically over a failure-prone connection. A failure during the final ACK/commit window can leave temporary asymmetric local trust. If a device observes this failure, show `Pairing incomplete`; disable any local record as `needs_repair` and do not permit content transfer. A local trust record alone does not prove both devices completed pairing.
 6. If one device has no active trust, it rejects the next connection before application data. The other device must show a useful recovery error; v1 may require revoking stale local trust and repeating QR pairing. Never silently trust a new key to repair this state.
+7. To send text, choose a trusted device, enter its current LAN address, and send. The sender creates a fresh Noise XX session and checks the selected device ID/key before sending. The receiver authorizes the session before parsing/delivering the text envelope. A new secure session is created per transfer; there is no live-session resume or route fallback yet.
 7. Discovery never indicates trust. A display-name or identity-key mismatch is rejected and requires explicit revoke/re-pair; never approve a mismatch.
 
 Being discovered does not mean the device is trusted. Never approve a fingerprint or verification string mismatch.
 
 ## Platform-specific notes and troubleshooting
-- Windows/Linux Phase 1 CLI: use a LAN-reachable TCP address and out-of-band fingerprint pin. The sample process accepts one connection and one text message. Process identities are ephemeral. Key fixture files are only for tests and must not be used as persistent app keys. Protected Windows/Linux identity storage is planned for Phase 2.
+- Historical Windows/Linux Phase 1 CLI: use a LAN-reachable TCP address and out-of-band fingerprint pin. The sample process accepts one connection and one text message. Process identities are ephemeral. This is not the current desktop pairing flow; test fixture keys must not be used as persistent app keys.
 - Android: from Android 10 (API 29), only the focused app or default IME can read clipboard contents. `getPrimaryClip()` can return null without focus. Background tasks and foreground-service starts are restricted separately; a foreground service does not override clipboard focus restrictions. Use explicit Send Clipboard/Share actions; the app will not poll or bypass system restrictions. Receiving is subject to app lifecycle/platform behavior, and no persistent receiver can be promised before target-version validation. Identity data must be excluded from cloud and device-transfer backup; if the Keystore wrapping key is unavailable after restore, the identity is lost and must re-pair.
-- Linux/X11: classic selections and ownership behavior differ from Wayland; implementation is planned, not currently supported.
-- Linux/Wayland: clipboard access is compositor-mediated and varies by compositor/session. Data-control/global clipboard monitoring is not a universal Wayland capability. This Phase 1 build has no clipboard monitor; later builds must detect and report exact capability rather than claim general Wayland support.
+- Linux/X11: the desktop shell and explicit clipboard actions are implemented through the platform clipboard integration, but this pass does not establish compositor-specific runtime validation. X11 selection ownership differs from Wayland.
+- Linux/Wayland: clipboard access is compositor-mediated and varies by compositor/session. Data-control/global clipboard monitoring is not a universal Wayland capability. The desktop has no clipboard monitor; explicit actions remain subject to compositor support and must report failures rather than imply universal support.
 - iOS/iPadOS PWA: clipboard reads require secure context and browser support/permission/user activation; writes remain user initiated and browser behavior differs. No background sync promise and no native keystore equivalence.
 
 ## Help, status and diagnostics contract

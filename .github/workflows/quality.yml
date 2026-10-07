@@ -17,11 +17,18 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
+      - name: Install Linux Tauri prerequisites
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev libwebkit2gtk-4.1-dev
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-unknown-linux-gnu
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2.9.2
+      - name: Resolve desktop workspace dependencies before locked gates
+        run: cargo check --workspace --all-targets
       - name: Format
         run: cargo fmt --all -- --check
       - name: Clippy
@@ -43,6 +50,44 @@ jobs:
         run: cargo build --workspace --locked
       - name: Release build
         run: cargo build --workspace --locked --release
+
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: apps/desktop
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2.9.2
+      - name: Install Linux Tauri prerequisites
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev libwebkit2gtk-4.1-dev
+      - name: Install frontend dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Audit frontend dependencies
+        run: npm audit --audit-level=high
+      - name: Frontend tests
+        run: npm test
+      - name: Frontend typecheck and production build
+        run: npm run build
+      - name: Tauri desktop compile
+        working-directory: .
+        run: cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets
+      - name: Tauri desktop build
+        working-directory: .
+        run: cargo build --manifest-path apps/desktop/src-tauri/Cargo.toml --locked
 
   fuzz:
     runs-on: ubuntu-24.04

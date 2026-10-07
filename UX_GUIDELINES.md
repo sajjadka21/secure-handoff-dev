@@ -1,5 +1,11 @@
 # UX Guidelines
 
+## Desktop implementation status
+
+The desktop shell follows the approved Minimal Native + Technical Premium baseline. It uses a persistent text-and-icon sidebar, status/header region, responsive content area, light/dark/system preference, subtle card borders, system typography, keyboard focus rings, and separate trust/connectivity indicators. Screens exist for Home (Clipboard/Compose), Devices, Add Device, Activity, Diagnostics, Settings, and Help & Guide.
+
+Pairing and LAN text transfer are integrated through the Rust core. Add Device renders actual invitation bytes, protocol-backed expiry, and transcript SAS; the issuer endpoint is shared separately and currently entered manually on the other device. Trusted rows are not shown as online without a live transfer session. Clipboard read/write is explicit; there is no background monitor or content history. System/light/dark preference works, with system mode following native theme changes. Privacy Pause gates outgoing sends, incoming delivery, and new pairing invitations without deleting trust. Tray actions are wired but still need manual native verification. System notifications are visibly unavailable rather than exposed as an inert control. A CSS adjustment now removes fixed/minimum-width pressure and the Home grid's right offset, but fresh native screenshot verification is blocked in the current environment; the existing screenshot still documents the earlier clipping. Continue screenshot review on Pairing, SAS, Devices, Settings, Diagnostics, and window resizing before treating the desktop UI as complete.
+
 - The primary surface is a clipboard-first Home with explicit Send and Receive actions, a one-click privacy pause, and no content history by default.
 - Show states with text + icon: Nearby (untrusted), Verifying, Trusted, Connecting, Connected, Sending, Received, Paused, Failed. Discovery must never look like a trusted/connected state.
 - Pair by scan QR, confirm expected device and compare the same short authentication words/numbers on both devices, then explicitly trust. Name and OS are descriptive only. Explain that fingerprint mismatch means stop.
@@ -12,3 +18,9 @@
 - Clipboard events use a random event ID and authenticated origin device ID for bounded duplicate suppression. An inbound event written to the local clipboard must not be emitted as a new event. Content equality alone is not a loop-prevention mechanism; never suppress a separately user-copied identical value just because its text matches an earlier event.
 - Diagnostics share is explicit, redacted and previewed. Never include clipboard contents.
 - Light/dark themes, responsive layouts, semantic headings, keyboard navigation, accessible focus and labels, high contrast, reduced motion and color-independent statuses are requirements.
+
+## Cross-platform design package
+
+The shared token system and platform-specific UI specification are in [`DESIGN_SYSTEM.md`](DESIGN_SYSTEM.md) and [`PLATFORM_UI_DESIGN.md`](PLATFORM_UI_DESIGN.md). The latter separates implemented Windows/Linux Phase 3 behavior from future Android Compose design and the constrained iOS/iPadOS PWA design. Its companion `work/platform-ui-design/index.html` is an illustrative layout preview, not a running client: its sample device rows, ready state, and SAS do not represent actual runtime state and cannot access clipboard, pairing, or transfer functions.
+
+Android designs keep clipboard operations foreground and user initiated, including Share/Quick Settings entry points only through platform-compliant flows. The iOS/iPadOS design remains a limited PWA: foreground clipboard actions, browser permissions, no guaranteed background transfer, and no assumption of native secure-store parity. Linux designs show detected X11/Wayland capability instead of promising global clipboard monitoring. Platform adaptation must preserve the trust/connectivity split and never elevate discovered devices to trusted.

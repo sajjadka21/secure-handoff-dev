@@ -312,6 +312,78 @@ impl TrustDb {
             .optional()?
             .is_some())
     }
+
+    /// Returns local trust metadata only. This never includes application payloads.
+    pub fn list_devices(&self) -> Result<Vec<TrustedDevice>, TrustError> {
+        let conn = self.connection.lock().expect("trust db poisoned");
+        let mut stmt = conn.prepare("SELECT record_id,device_id,static_public_key,local_label,minimum_protocol,trusted_at,status FROM trusted_devices ORDER BY local_label COLLATE NOCASE")?;
+        let rows = stmt.query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, Vec<u8>>(1)?,
+                r.get::<_, Vec<u8>>(2)?,
+                r.get::<_, String>(3)?,
+                r.get::<_, u16>(4)?,
+                r.get::<_, i64>(5)?,
+                r.get::<_, String>(6)?,
+            ))
+        })?;
+        rows.map(|row| {
+            let (record_id, device_id, public_key, label, minimum_protocol, trusted_at, status) =
+                row?;
+            Ok(TrustedDevice {
+                record_id: Uuid::parse_str(&record_id)
+                    .map_err(|_| rusqlite::Error::InvalidQuery)?,
+                device_id: device_id
+                    .try_into()
+                    .map_err(|_| rusqlite::Error::InvalidQuery)?,
+                public_key: public_key
+                    .try_into()
+                    .map_err(|_| rusqlite::Error::InvalidQuery)?,
+                label,
+                minimum_protocol,
+                trusted_at,
+                status: if status == "trusted" {
+                    TrustStatus::Trusted
+                } else {
+                    TrustStatus::NeedsRepair
+                },
+            })
+        })
+        .collect::<Result<Vec<_>, rusqlite::Error>>()
+        .map_err(TrustError::Database)
+    }
+
+    /// Lists the local denylist without exposing any application data.
+    pub fn list_revoked(&self) -> Result<Vec<RevokedDevice>, TrustError> {
+        let conn = self.connection.lock().expect("trust db poisoned");
+        let mut stmt = conn.prepare(
+            "SELECT device_id,static_public_key,revoked_at,reason_code FROM revoked_devices ORDER BY revoked_at DESC",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, Vec<u8>>(0)?,
+                row.get::<_, Vec<u8>>(1)?,
+                row.get::<_, i64>(2)?,
+                row.get::<_, String>(3)?,
+            ))
+        })?;
+        rows.map(|row| {
+            let (device_id, public_key, revoked_at, reason_code) = row?;
+            Ok(RevokedDevice {
+                device_id: device_id
+                    .try_into()
+                    .map_err(|_| rusqlite::Error::InvalidQuery)?,
+                public_key: public_key
+                    .try_into()
+                    .map_err(|_| rusqlite::Error::InvalidQuery)?,
+                revoked_at,
+                reason_code,
+            })
+        })
+        .collect::<Result<Vec<_>, rusqlite::Error>>()
+        .map_err(TrustError::Database)
+    }
 }
 fn now() -> i64 {
     SystemTime::now()
@@ -379,6 +451,8 @@ mod tests {
         db.commit_trust(id, key, "laptop", 1).unwrap();
         let (_, live) = db.authorize_session(&id, &key, 1).unwrap();
         db.revoke(id, key, RevocationReason::UserRequested).unwrap();
+        assert_eq!(db.list_revoked().unwrap().len(), 1);
+        assert!(db.list_devices().unwrap().is_empty());
         assert!(!live.is_active());
         assert!(matches!(
             live.ensure_active(),

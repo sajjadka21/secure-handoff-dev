@@ -1,5 +1,24 @@
 # Test Plan
 
+## Phase 3 desktop foundation verification state
+
+Frontend tests in `apps/desktop/src/App.test.tsx` cover classification, screen navigation, actual QR rendering and cancellation calls, protocol-event SAS confirmation/rejection, repair guidance, explicit clipboard read, and Compose invocation to a selected trusted device/address. The Rust desktop crate tests command validation, settings validation, diagnostics field allowlisting, and metadata-only activity retention. `clipcore` tests QR canonical bounds, pairing controls/state cut points, trust/revocation, identity/store records, Noise tamper/replay protection, and encrypted LAN transfer.
+
+Validation on 2026-10-07 used Windows host build `10.0.26200.0`, `x86_64-pc-windows-msvc`, Rust/Cargo `1.98.1`, Node.js `26.4.0`, npm `12.0.2`, and Tauri WebView2. The real Tauri window launched after correcting a clipboard-plugin configuration error and aligning its JavaScript API/plugin minor versions with their Rust crates. Native UI screenshot review identified and fixed dark-theme heading contrast; the default-width Home layout still appears clipped at the right edge in the captured window and needs another visual pass. Windows app-level pairing/transfer and tray interaction have not been demonstrated; Linux builds/runtime are not executed locally.
+
+Manual application tests still required:
+
+- Windows first identity creation, app restart with the same stable identity, and locked/corrupt secure-store behavior; Ubuntu app launch with Secret Service plus X11/Wayland clipboard behavior.
+- Ubuntu 24.04 debug/release/Tauri build matrix and CI workflow completion.
+- Two real desktop clients complete QR pairing, compare actual Noise transcript SAS, confirm bilateral controls, persist trust, and exchange encrypted LAN text.
+- Revocation terminates an active session and blocks a later connection.
+- Privacy Pause blocks transfer after transport integration.
+- Activity persists metadata only and retention settings prune records.
+- Diagnostics redaction review and clipboard behavior on Windows, X11, and Wayland.
+- Native tray open/send-clipboard/compose/pause/quit behavior and start-minimized/close-to-tray behavior.
+
+Core unit/process LAN transfer tests pass, but no two-instance Tauri app E2E result is claimed. Phase 3 remains OPEN until desktop application pairing/send/receive/revoke/Pause, Linux builds/runtime, and native tray behavior have direct evidence.
+
 ## Phase 1 acceptance tests
 1. Unit: create independent static identities and confirm stable, distinct public fingerprints.
 2. Unit: envelope round-trip, malformed/truncated header, unsupported version, oversize payload, invalid UTF-8.
@@ -80,3 +99,37 @@ Remaining risks and follow-up work:
 - Android, PWA, UI, clipboard/file integrations, and later transports remain outside Phase 2.
 
 cargo fmt, strict Clippy, locked tests/builds, audit/deny, SBOM, secret scanning, and all four bounded fuzz targets have completed on the hosted run above. No unexecuted job is counted as passing.
+
+## Phase 3 local verification results
+
+- `cargo fmt --all -- --check`: **PASS** (Windows).
+- `cargo clippy --workspace --all-targets --all-features --offline -- -D warnings`: **PASS** (Windows).
+- `cargo test --workspace --locked --offline`: **PASS** — desktop 4/4, clipcore 31/31, process integration 2/2; all other targets/doc tests passed with zero tests.
+- Windows Tauri backend `cargo check --offline`: **PASS**. The Tauri dev app launched and reached its real window after runtime-config fixes; Windows Firewall presented its standard network-access prompt. No firewall allow-rule was accepted as part of this validation.
+- Windows Tauri release build `cargo build --manifest-path apps/desktop/src-tauri/Cargo.toml --locked --release --offline`: **PASS**.
+- `npm run build`: **PASS** — TypeScript check plus Vite production build.
+- `npm test -- --reporter=dot`: **PASS** — 9 frontend tests.
+- `npm audit`: **PASS** — 0 vulnerabilities after aligning Tauri JS package versions and updating Vitest.
+- Ubuntu 24.04 debug/release/Tauri builds and Linux app launch: **NOT EXECUTED** locally; CI workflow is configured but no current Phase 3 workflow run has been observed.
+- Two-instance Tauri app pairing/transfer, actual manual clipboard transfer, tray interaction, native Windows secure-store failure injection, and revocation/Pause runtime behavior: **NOT EXECUTED** end to end.
+- Real app screenshot: `apps/desktop/ui-review-home.png`. It was reviewed after the contrast adjustment; headings are now readable. A right-edge layout/cropping issue remains visible at the captured size despite responsive spacing changes. Pairing, SAS, Devices, Settings, diagnostics, and other window-size screenshots remain outstanding.
+
+Phase 3 remains OPEN. Passing core process tests and the local Windows build does not replace the required app-level cross-device and Linux validation.
+
+## Final validation attempt (2026-10-07)
+
+This is a separate revalidation pass; results below do not overwrite the earlier recorded successful Windows checks above.
+
+- `cargo clippy --workspace --all-targets --all-features --offline -- -D warnings`: **PASS** on the Windows host.
+- `cargo fmt --all -- --check`: **FAILED TO EXECUTE**; Rust reported parent-path canonicalization warnings followed by Windows `Access is denied (os error 5)`.
+- `cargo test --workspace --locked --offline`: **FAILED**; the desktop build script reached `tauri::generate_context!` without `OUT_DIR` set. No workspace test results were produced in this attempt.
+- Tauri backend offline check: **FAILED TO EXECUTE**; the custom build script terminated on `Access is denied (os error 5)` during path handling.
+- Frontend tests and production build: **FAILED TO EXECUTE**; Vite failed to `realpath` files under `apps/desktop/src` with `EPERM`, before tests/modules could run.
+- Tauri dev launch: Rust backend compiled and a process was spawned, but startup logged `identity startup failed: identity_store_error`; no successful identity-startup or usable-window claim is made. The available UI inspection API could not expose the native window, and local browser access to the dev server was unavailable.
+- Screenshots: **NONE captured in this pass**. The pre-existing `apps/desktop/ui-review-home.png` was reviewed and shows the prior clipping issue. CSS was adjusted in production styles to remove fixed-width pressure and the grid's right offset, but this correction is not visually verified.
+- Two-instance E2E, tray, manual clipboard transfer, revocation/Pause runtime flow: **NOT EXECUTED** in this pass.
+- Ubuntu Phase 3 debug/release/Tauri/Secret Service validation: **NOT EXECUTED** in this pass.
+- GitHub Actions: **NOT EXECUTED**. `gh auth status` reported the saved account token invalid; the repository run-list request returned HTTP 404. No new workflow run ID exists from this pass.
+- `git diff --check`: **PASS** after the documentation sweep; Git emitted only line-ending normalization warnings. No CI or end-to-end result is inferred from source inspection.
+
+Phase 3 remains OPEN. The revalidation did not meet the acceptance criteria for real-app screenshot QA, two-client transfer, tray operation, frontend tests/build, Linux build/runtime, or a completed CI matrix. Earlier recorded successes remain historical evidence only and do not resolve these open gates.

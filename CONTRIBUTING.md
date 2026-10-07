@@ -1,7 +1,7 @@
 # Contributing
 
-## Phase 2 development
-Rust workspace uses edition 2024 and MSRV 1.89. Run `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`, and `cargo test --workspace --locked`. The CI workflow runs these plus debug and release builds on Windows 2022 and Ubuntu 24.04. Keep crypto/protocol changes small, with a short design note, updated protocol version/vectors when wire behavior changes, and positive/negative tests. Do not represent a CI matrix as passed until its run has completed successfully.
+## Development and validation
+Rust workspace uses edition 2024 and MSRV 1.89. Run `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`, and `cargo test --workspace --locked`. For the desktop, run `npm ci`, `npm test`, `npm run build`, and the platform Tauri checks from `apps/desktop`; Linux additionally needs Tauri's documented WebKitGTK prerequisites and a Secret Service session. CI covers Windows 2022 and Ubuntu 24.04. Keep crypto/protocol changes small, with a short design note, updated protocol version/vectors when wire behavior changes, and positive/negative tests. Do not represent a CI matrix as passed until its run has completed successfully.
 
 ## Security-sensitive changes
 Never add a custom cryptographic primitive or plaintext fallback. Discuss cryptographic pattern, identity binding, transcript fields, replay behavior, failure behavior, and dependency version before implementation. Update `PROTOCOL.md`, `THREAT_MODEL.md`, `SECURITY.md`, and `TEST_PLAN.md` together. Include dependency review and primary-source links. Do not claim audited/production secure without independent review.

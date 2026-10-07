@@ -45,6 +45,10 @@ pub struct InvitationIssuer {
     cooldown_until: Option<Duration>,
 }
 impl InvitationIssuer {
+    /// Invalidates the current volatile invitation immediately.
+    pub fn cancel(&mut self) {
+        self.current = None;
+    }
     pub fn issue(
         &mut self,
         now: Duration,
@@ -312,6 +316,12 @@ impl PairingTransaction {
     }
     pub fn sas(&self) -> &str {
         &self.sas
+    }
+    pub fn peer_id(&self) -> &[u8; 32] {
+        &self.peer_id
+    }
+    pub fn label(&self) -> &str {
+        &self.label
     }
     pub fn confirm_local(&mut self, accept: bool) -> Result<PairControl, PairingError> {
         if self.state != State::SasPending {

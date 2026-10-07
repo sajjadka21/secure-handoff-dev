@@ -84,6 +84,30 @@ pub fn establish(
     initiator: bool,
     version: u16,
 ) -> Result<TransportState> {
+    let established = establish_candidate(stream, identity, initiator, version)?;
+    let remote_fingerprint = blake3::hash(&established.remote_static)
+        .to_hex()
+        .to_string();
+    if remote_fingerprint != expected_peer_fingerprint {
+        bail!("untrusted peer fingerprint: {remote_fingerprint}");
+    }
+    Ok(established.state)
+}
+
+/// Performs Noise XX and returns the authenticated peer key for an application trust check.
+/// Callers MUST authorize the key with the local trust database before reading or writing
+/// application data. Discovery or this handshake alone does not grant trust.
+pub struct CandidateSession {
+    pub state: TransportState,
+    pub remote_static: [u8; 32],
+}
+
+pub fn establish_candidate(
+    stream: &mut TcpStream,
+    identity: &DeviceIdentity,
+    initiator: bool,
+    version: u16,
+) -> Result<CandidateSession> {
     validate_version(version)?;
     let params = noise_params()?;
     let mut state = if initiator {
@@ -106,14 +130,14 @@ pub fn establish(
         handshake_write(&mut state, stream)?;
         handshake_read(&mut state, stream)?;
     }
-    let remote = state
+    let remote: [u8; 32] = state
         .get_remote_static()
-        .ok_or_else(|| anyhow::anyhow!("peer omitted static identity"))?;
-    let remote_fingerprint = blake3::hash(remote).to_hex().to_string();
-    if remote_fingerprint != expected_peer_fingerprint {
-        bail!("untrusted peer fingerprint: {remote_fingerprint}");
-    }
-    Ok(state.into_transport_mode()?)
+        .ok_or_else(|| anyhow::anyhow!("peer omitted static identity"))?
+        .try_into()?;
+    Ok(CandidateSession {
+        state: state.into_transport_mode()?,
+        remote_static: remote,
+    })
 }
 
 /// Pairing Noise XX uses invitation-bound prologue; the joiner verifies issuer static against QR.
@@ -313,6 +337,34 @@ mod tests {
         assert!(validate_version(CURRENT_PROTOCOL_VERSION).is_ok());
         assert!(validate_version(0).is_err());
         assert!(validate_version(CURRENT_PROTOCOL_VERSION + 1).is_err());
+    }
+
+    #[test]
+    fn candidate_noise_key_does_not_authorize_an_untrusted_application_session() {
+        use crate::trust::{TrustDb, TrustError};
+        let local = DeviceIdentity::generate().unwrap();
+        let remote = DeviceIdentity::generate().unwrap();
+        let local_public = *local.public_key();
+        let remote_public = *remote.public_key();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let responder = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let candidate = establish_candidate(&mut socket, &remote, false, 1).unwrap();
+            tx.send(candidate.remote_static).unwrap();
+        });
+        let mut socket = TcpStream::connect(addr).unwrap();
+        let candidate = establish_candidate(&mut socket, &local, true, 1).unwrap();
+        responder.join().unwrap();
+        assert_eq!(candidate.remote_static, remote_public);
+        assert_eq!(rx.recv().unwrap(), local_public);
+        let db = TrustDb::in_memory().unwrap();
+        let peer_id = *blake3::hash(&candidate.remote_static).as_bytes();
+        assert!(matches!(
+            db.authorize_session(&peer_id, &candidate.remote_static, 1),
+            Err(TrustError::Untrusted)
+        ));
     }
 
     fn make_session() -> (TcpStream, TransportState, TcpStream, TransportState) {

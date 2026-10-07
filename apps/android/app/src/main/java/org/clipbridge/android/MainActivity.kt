@@ -1,3 +1,6 @@
+Warning: truncated output (original token count: 10167)
+Total output lines: 685
+
 package org.clipbridge.android
 
 import android.content.ClipData
@@ -216,7 +219,7 @@ private fun HomeScreen(
     }
     val sendableDevices = devices.filterNot { it.needsRepair }
     val selectedDevice = sendableDevices.firstOrNull { it.deviceId.joinToString("") { byte -> "%02x".format(byte) } == selectedDeviceId }
-    val startReceiver = {
+    val startReceiver: () -> Unit = {
         val address = context.activeLanIpv4()
         if (address == null) sendStatus = "No active Wi-Fi or Ethernet LAN address is available."
         else scope.launch {
@@ -358,15 +361,7 @@ private fun HomeScreen(
             Text("${composeText.toByteArray(Charsets.UTF_8).size} bytes · ${TextClassifier.classify(composeText)}", style = MaterialTheme.typography.bodySmall)
             OutlinedButton(onClick = { composeText = "" }, modifier = Modifier.fillMaxWidth()) { Text("Clear") }
         }
-        sendStatus?.let { Text(it, color = if (it.startsWith("Sent")) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) }
-    }
-    receivedText?.let { (sender, text) ->
-        AlertDialog(
-            onDismissRequest = { receivedText = null },
-            title = { Text("Text received from $sender") },
-            text = { Text(text.take(6000), style = MaterialTheme.typography.bodyMedium) },
-            confirmButton = { Button(onClick = { context.copyToClipboard("ClipBridge received text", text); receivedText = null }) { Text("Copy") } },
-            dismissButton = { OutlinedButton(onClick = { receivedText = null }) { Text("Close") } },
+    …167 tokens truncated…n(onClick = { receivedText = null }) { Text("Close") } },
         )
     }
 }

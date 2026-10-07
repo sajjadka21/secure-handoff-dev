@@ -3,6 +3,15 @@
 ## Development and validation
 Rust workspace uses edition 2024 and MSRV 1.89. Run `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`, and `cargo test --workspace --locked`. For the desktop, run `npm ci`, `npm test`, `npm run build`, and the platform Tauri checks from `apps/desktop`; Linux additionally needs Tauri's documented WebKitGTK prerequisites and a Secret Service session. CI covers Windows 2022 and Ubuntu 24.04. Keep crypto/protocol changes small, with a short design note, updated protocol version/vectors when wire behavior changes, and positive/negative tests. Do not represent a CI matrix as passed until its run has completed successfully.
 
+The Android project is in `apps/android`. It uses JDK 17, Gradle 9.1.0, Android SDK 36, and NDK 28.2.13676358. Install `cargo-ndk` 4.1.2 and build the JNI library for `arm64-v8a` and `x86_64` before packaging:
+
+```sh
+cargo ndk -t arm64-v8a -t x86_64 --platform 26 -o apps/android/app/src/main/jniLibs build --release -p clipbridge-android-bridge
+gradle --no-daemon -p apps/android testDebugUnitTest lint assembleDebug
+```
+
+The CI workflow also runs `connectedDebugAndroidTest` on an API 36 emulator. An Android check is not complete until that workflow succeeds; a source-only build or Rust host test does not prove Keystore or Android runtime behavior.
+
 ## Security-sensitive changes
 Never add a custom cryptographic primitive or plaintext fallback. Discuss cryptographic pattern, identity binding, transcript fields, replay behavior, failure behavior, and dependency version before implementation. Update `PROTOCOL.md`, `THREAT_MODEL.md`, `SECURITY.md`, and `TEST_PLAN.md` together. Include dependency review and primary-source links. Do not claim audited/production secure without independent review.
 

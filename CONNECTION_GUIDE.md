@@ -35,12 +35,24 @@ Being discovered does not mean the device is trusted. Never approve a fingerprin
 ## Platform-specific notes and troubleshooting
 - Historical Windows/Linux Phase 1 CLI: use a LAN-reachable TCP address and out-of-band fingerprint pin. The sample process accepts one connection and one text message. Process identities are ephemeral. This is not the current desktop pairing flow; test fixture keys must not be used as persistent app keys.
 - Android: from Android 10 (API 29), only the focused app or default IME can read clipboard contents. `getPrimaryClip()` can return null without focus. Background tasks and foreground-service starts are restricted separately; a foreground service does not override clipboard focus restrictions. Use explicit Send Clipboard/Share actions; the app will not poll or bypass system restrictions. Receiving is subject to app lifecycle/platform behavior, and no persistent receiver can be promised before target-version validation. Identity data must be excluded from cloud and device-transfer backup; if the Keystore wrapping key is unavailable after restore, the identity is lost and must re-pair.
+- Android LAN permission: current scaffold targets SDK 36; Android 16 local-network protections are opt-in for testing, while Android 17 requires `ACCESS_LOCAL_NETWORK` for target SDK 37+ raw LAN access (or a supported system-mediated picker). When LAN transport is implemented, request permission only at the point its purpose is explained, and surface denial/revocation as an unavailable route. Do not assume `INTERNET` will remain sufficient after raising target SDK.
 - Linux/X11: the desktop shell and explicit clipboard actions are implemented through the platform clipboard integration, but this pass does not establish compositor-specific runtime validation. X11 selection ownership differs from Wayland.
 - Linux/Wayland: clipboard access is compositor-mediated and varies by compositor/session. Data-control/global clipboard monitoring is not a universal Wayland capability. The desktop has no clipboard monitor; explicit actions remain subject to compositor support and must report failures rather than imply universal support.
 - iOS/iPadOS PWA: clipboard reads require secure context and browser support/permission/user activation; writes remain user initiated and browser behavior differs. No background sync promise and no native keystore equivalence.
 
 ## Help, status and diagnostics contract
 The connection screen and Help & Guide use the same route capability identifiers. For each method show (1) platform pairings supported by the design, (2) whether the current endpoint reports it available, (3) selected/unavailable state and plain-language reason, and (4) whether traffic leaves the LAN and its configured relay cost cap. Availability never means trust. For example: “LAN direct — available; lowest-latency eligible route; encrypted session required” or “Wayland clipboard monitoring — unavailable in this compositor session; use Send manually.” Diagnostics are local by default and include route attempt codes/timing buckets only; export is user initiated and previewed. Never export message text, file names, QR nonce, identity secrets or stable discovery IDs.
+
+## V1 priority and route plan
+Windows ↔ Android is the first required bidirectional cross-platform pairing and the Android client is the next client under development. Windows ↔ iPhone/iPad follows through the limited foreground PWA where browser APIs permit. Windows ↔ Windows stays secondary while it remains stable and inexpensive. Phase 3 Windows E2E is still OPEN because this host lacked an independent second Windows runtime; the missing environment is not a failed implementation result.
+
+The eventual V1 route target is LAN, Wi-Fi Direct where reliable, WebRTC direct, then cost-capped TURN fallback. BLE is reserved for useful discovery/bootstrap. The Android foundation begins with LAN only. The existing application Noise/trust/session rules are mandatory on every future route. Route selection is never a trust decision. No R2 or persistent server-side payload storage is allowed.
+
+| Pairing | V1 route targets | Current evidence |
+|---|---|---|
+| Windows ↔ Android | LAN first; later Wi-Fi Direct, WebRTC, capped TURN; BLE bootstrap only if useful | Android implementation and cross-platform E2E are pending until verified in `TEST_PLAN.md` |
+| Windows ↔ iPhone/iPad | LAN and WebRTC/TURN only where the PWA/browser actually supports them | Future; no background or native-radio promise |
+| Windows ↔ Windows | LAN; other routes only if low-cost to retain | Desktop implementation exists; independent two-client runtime E2E remains open |
 
 ## Common error meanings
 - `untrusted peer fingerprint`: stop and re-pair/verify; network discovery names/IP do not override the pin.
@@ -53,6 +65,7 @@ The connection screen and Help & Guide use the same route capability identifiers
 ## Official platform/service checks (2026-10-06)
 - Android clipboard focus restriction: https://developer.android.com/about/versions/10/privacy/changes#limited-access-to-clipboard-data
 - Android backup exclusions and data-extraction rules: https://developer.android.com/identity/data/autobackup
+- Android LAN access and future runtime permission: https://developer.android.com/privacy-and-security/local-network-permission
 - Wayland compositor-mediated data sharing: https://wayland.freedesktop.org/docs/book/Protocol.html
 - W3C WebRTC Recommendation and IETF Data Channel protocol: https://www.w3.org/TR/webrtc/ and https://www.rfc-editor.org/rfc/rfc8831
 - Cloudflare Workers limits: https://developers.cloudflare.com/workers/platform/limits/

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/clipcore", "apps/desktop/src-tauri"]
+members = ["crates/clipcore", "crates/android-bridge", "apps/desktop/src-tauri"]
 
 [workspace.package]
 edition = "2024"

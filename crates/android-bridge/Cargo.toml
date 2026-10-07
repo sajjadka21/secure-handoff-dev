@@ -1,0 +1,15 @@
+[package]
+name = "clipbridge-android-bridge"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lib]
+name = "clipbridge_android"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+clipcore = { version = "0.1.0", path = "../clipcore" }
+jni = "=0.21.1"
+zeroize.workspace = true

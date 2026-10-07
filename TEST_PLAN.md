@@ -4,7 +4,7 @@
 
 Frontend tests in `apps/desktop/src/App.test.tsx` cover classification, screen navigation, actual QR rendering and cancellation calls, protocol-event SAS confirmation/rejection, repair guidance, explicit clipboard read, and Compose invocation to a selected trusted device/address. The Rust desktop crate tests command validation, settings validation, diagnostics field allowlisting, and metadata-only activity retention. `clipcore` tests QR canonical bounds, pairing controls/state cut points, trust/revocation, identity/store records, Noise tamper/replay protection, and encrypted LAN transfer.
 
-Validation on 2026-10-07 used Windows host build `10.0.26200.0`, `x86_64-pc-windows-msvc`, Rust/Cargo `1.98.1`, Node.js `26.4.0`, npm `12.0.2`, and Tauri WebView2. The real Tauri window launched after correcting a clipboard-plugin configuration error and aligning its JavaScript API/plugin minor versions with their Rust crates. Native UI screenshot review identified and fixed dark-theme heading contrast; the default-width Home layout still appears clipped at the right edge in the captured window and needs another visual pass. Windows app-level pairing/transfer and tray interaction have not been demonstrated; Linux builds/runtime are not executed locally.
+Validation on 2026-10-07 used Windows host build `10.0.26200.0`, `x86_64-pc-windows-msvc`, Rust/Cargo `1.98.1`, Node.js `26.4.0`, npm `12.0.2`, and Tauri WebView2. The real Tauri window launched after correcting a clipboard-plugin configuration error and aligning its JavaScript API/plugin minor versions with their Rust crates. An earlier screenshot showed Home right-edge clipping; a later review of the actual app at approximately 1,036–1,193 px found no clipping after the CSS correction. Minimum/larger sizes, display scaling and dialogs remain unverified below. Windows app-level pairing/transfer and tray interaction have not been demonstrated; Linux builds/runtime are not executed locally.
 
 Manual application tests still required:
 
@@ -163,3 +163,27 @@ Environment: one Windows host, primary Windows profile, Tauri v2 development run
 - Runtime issue: pairing QR generation worked, but the temporary invitation expired during the account-setup block. The screen returned to the invitation creation action. No application defect was reproduced. The Tauri development process was stopped at the end of the pass.
 
 Phase 3 remains **OPEN**. The prior temporary account/profile cleanup is verified, and no new test account was created. The actual two-client flows, tray, full accessibility/responsive checks, and Linux GUI runtime gates remain unmet. Do not infer pairing, transfer, revocation, tray, or Linux runtime behavior from build/CI evidence.
+
+## Phase 4 Android foundation verification state (2026-10-07)
+
+V1 priority is Windows ↔ Android bidirectionally, then Windows ↔ iPhone/iPad where foreground PWA APIs permit, then Windows ↔ Windows as a secondary pairing. The required first cross-platform runtime proof is Windows ↔ Android over LAN. Other routes remain later work and cannot be inferred from source or CI. Phase 3 remains OPEN because an independent second Windows runtime was unavailable; this is an environment limitation, not an implementation failure result.
+
+At the start of the Android slice, no Android SDK, Gradle executable, ADB, emulator, or Android device was available on the Windows host. Therefore no Android app build, emulator run, secure-store runtime test, or Windows ↔ Android E2E result may be marked passed from this environment. Add actual CI/build/device evidence below as it is produced; do not replace device tests with mocks.
+
+Android platform facts were checked against official Android documentation on 2026-10-07:
+
+- Android 10+ restricts clipboard access to the focused app or default IME: https://developer.android.com/about/versions/10/privacy/changes#limited-access-to-clipboard-data
+- Auto Backup is enabled by default for eligible apps and version-specific exclusion rules are needed for Android 11 and earlier versus Android 12+: https://developer.android.com/identity/data/autobackup
+- Compose compiler is versioned with Kotlin, and the Compose BOM provides compatible Compose library versions: https://developer.android.com/develop/ui/compose/setup-compose-dependencies-and-compiler and https://developer.android.com/develop/ui/compose/bom
+- Android Gradle Plugin 9.0.1 documents Gradle 9.1.0 and JDK 17 compatibility and built-in Kotlin support: https://developer.android.com/build/releases/agp-9-0-0-release-notes
+- Android 16 local-network protections can be enabled for testing; Android 17 requires a runtime permission for target SDK 37+ LAN sockets unless using a supported system picker: https://developer.android.com/privacy-and-security/local-network-permission
+
+Those platform references do not establish that the client behavior is implemented. Report each Android validation gate with its actual toolchain, device/API, result, and limitation.
+
+Source added for this slice:
+
+- `apps/android` contains the Compose shell, manual foreground clipboard read, in-memory Compose/classification, appearance preference, Privacy Pause preference, metadata-only empty Activity, and allowlisted diagnostics. Send and pairing controls state their current unavailable status; they do not synthesize a result.
+- `crates/android-bridge` exposes Rust-generated identity records, validated public metadata, and installs the loaded `DeviceIdentity` into Rust process memory only after encrypted storage is committed; a different live identity is rejected. `apps/android/.../AndroidIdentityStore.kt` wraps the existing 70-byte `CBID` record with an AES-256-GCM Android Keystore key and stores only the exact-size authenticated ciphertext envelope in `noBackupFilesDir`. Existing missing-after-key, malformed, and authentication failures fail closed. Plaintext identity bytes transit JNI as a short-lived Java `ByteArray`; Kotlin clears it best-effort and the Rust copy is zeroized. JVM/provider copies cannot be proven wiped.
+- Kotlin unit tests cover conservative text classification. Rust bridge unit tests cover stable public metadata and malformed/mismatched identity rejection. An Android instrumentation test covers same-install persistence and ciphertext tamper rejection. `.github/workflows/android.yml` builds both Android Rust ABIs, runs Rust/JVM checks, lint, APK assembly, and the Keystore instrumentation test on an emulator.
+
+Validation status for this revision: `cargo fmt` and local Rust compilation were **BLOCKED** by Windows sandbox access errors; dependency download/unpack also failed with `Access is denied` under the Cargo cache. No Android SDK, Gradle, ADB, emulator, or attached device is installed, so Android Gradle tasks and Keystore instrumentation are **NOT EXECUTED**. The Android GitHub Actions workflow has been added but has no run result yet. No Rust/Android or Android/Desktop transfer, pairing, QR, SAS, trust persistence, revocation, receive, or Privacy Pause enforcement is claimed. Android Phase 4 remains OPEN.

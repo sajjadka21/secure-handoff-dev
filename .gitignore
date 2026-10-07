@@ -1,6 +1,10 @@
 /target/
 /apps/desktop/node_modules/
 /apps/desktop/dist/
+/apps/android/.gradle/
+/apps/android/local.properties
+/apps/android/**/build/
+/apps/android/app/src/main/jniLibs/
 *.tsbuildinfo
 /apps/desktop/src-tauri/gen/
 /fuzz/target/
@@ -16,3 +20,5 @@
 *.sqlite3
 *.key
 *.pem
+*.jks
+*.keystore

@@ -1,5 +1,15 @@
 # Internal project codename: ClipBridge
 
+## V1 platform priority
+
+The first required cross-platform route is Windows ↔ Android, bidirectionally. Windows ↔ iPhone/iPad follows where the limited foreground PWA can support it. Windows ↔ Windows is secondary while it remains stable and low-cost. The eventual route plan is LAN, Wi-Fi Direct where practical, WebRTC direct, then capped TURN; BLE is only for useful discovery/bootstrap. The Android foundation starts with LAN and keeps the existing QR/SAS, pinned identity, Noise encryption, and revocation model. Later routes are not presented as available.
+
+Phase 3 Windows cross-device E2E remains **OPEN** because an independent second Windows runtime was unavailable on the validation host. This is an environmental validation limit, not a failed implementation result. Android SDK/ADB/emulator availability and Android runtime evidence are recorded separately in `TEST_PLAN.md`.
+
+## Phase 4 Android foundation status
+
+`apps/android` now contains a Kotlin/Jetpack Compose shell and explicit foreground clipboard read/Compose surfaces. `crates/android-bridge` delegates identity generation and validation to `clipcore`; identity is persisted as Android Keystore AES-GCM ciphertext in app-private no-backup storage. The UI keeps pairing, devices, and transfer unavailable until their real core integrations exist. Android Gradle/Keystore emulator checks and Windows ↔ Android runtime E2E are pending; see `ROADMAP.md` and `TEST_PLAN.md`.
+
 ## Phase 3 desktop implementation status
 
 The current desktop branch contains a Tauri v2 + React/TypeScript shell with Home, Devices, Add Device, Activity, Diagnostics, Settings, and Help & Guide screens. It loads identity through Windows Credential Manager or Linux Secret Service, persists local trust, implements QR-bound Noise pairing with SAS confirmation, and provides encrypted text send/receive over LAN. Clipboard access is explicit. The issuer’s LAN endpoint must currently be shared separately and the destination endpoint entered manually; no LAN discovery or cross-platform desktop E2E result has been verified yet. See `TEST_PLAN.md` for exact evidence and open gates.
@@ -12,7 +22,7 @@ ClipBridge is an internal working codename only. It is not approved for public b
 
 The current application is the Phase 3 Windows/Linux desktop client in `apps/desktop`: Tauri v2, React/TypeScript, protected persistent identity, local trust database, QR/Noise pairing with transcript SAS, encrypted one-shot LAN text transfer, explicit clipboard read/write, Compose, metadata-only activity, diagnostics, settings, tray wiring, and Help & Guide. LAN endpoint entry is manual; discovery and non-LAN transports are not implemented.
 
-Phase 3 remains **OPEN**. In this validation pass, a CSS correction was made for the known Home horizontal clipping, but fresh screenshot confirmation was blocked because the native window could not be inspected through the available UI tooling and the app reported a secure-identity startup error in this sandbox. Two-instance pairing/transfer, native tray behavior, and Ubuntu runtime/build validation remain unverified here. See `TEST_PLAN.md` for the distinction between prior recorded results and this pass.
+Phase 3 remains **OPEN**. The latest recorded real-app review captured major desktop screens and a real invitation, checked Home/Settings at multiple window widths and both themes, and confirmed no clipping at the tested sizes. Pairing between two independent clients, transfers, tray behavior, full accessibility coverage, Linux app launch, and real X11/Wayland validation remain open. See `TEST_PLAN.md` for exact evidence.
 
 The earlier command-line process exchange is a **historical Phase 1 prototype**, not the current application or a production workflow. It creates ephemeral process identities and uses an out-of-band fingerprint comparison. It remains useful only as a small core transport demonstration.
 

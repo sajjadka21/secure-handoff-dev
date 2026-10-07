@@ -47,4 +47,5 @@ jobs:
         with:
           api-level: 36
           arch: x86_64
+          disk-size: 2G
           script: gradle --no-daemon -p apps/android connectedDebugAndroidTest

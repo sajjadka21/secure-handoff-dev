@@ -698,9 +698,13 @@ mod tests {
         ))));
         assert!(is_allowed_lan_address(IpAddr::V4(Ipv4Addr::LOCALHOST)));
         assert!(is_allowed_lan_address(IpAddr::V6(Ipv6Addr::LOCALHOST)));
-        assert!(is_allowed_lan_address(IpAddr::V6("fd00::1".parse().unwrap())));
+        assert!(is_allowed_lan_address(IpAddr::V6(
+            "fd00::1".parse().unwrap()
+        )));
         assert!(!is_allowed_lan_address(IpAddr::V4(Ipv4Addr::UNSPECIFIED)));
-        assert!(!is_allowed_lan_address(IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8))));
+        assert!(!is_allowed_lan_address(IpAddr::V4(Ipv4Addr::new(
+            8, 8, 8, 8
+        ))));
         assert!(!is_allowed_lan_address(IpAddr::V6(Ipv6Addr::UNSPECIFIED)));
     }
 
@@ -717,3 +721,4 @@ mod tests {
     }
 }
 
+\n

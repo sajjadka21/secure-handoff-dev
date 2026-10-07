@@ -42,6 +42,11 @@ jobs:
           validate-wrappers: true
       - name: Android unit tests, lint and debug package
         run: gradle --no-daemon -p apps/android testDebugUnitTest lint assembleDebug
+      - name: Reclaim runner space after native builds
+        run: |
+          df -h /
+          cargo clean
+          df -h /
       - name: Android Keystore instrumentation test
         uses: reactivecircus/android-emulator-runner@v2
         with:

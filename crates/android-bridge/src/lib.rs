@@ -720,5 +720,3 @@ mod tests {
         assert!(parse_lan_endpoint(&format!("{}:43123", "1".repeat(129))).is_err());
     }
 }
-
-

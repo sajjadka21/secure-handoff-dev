@@ -42,6 +42,23 @@ jobs:
           validate-wrappers: true
       - name: Android unit tests, lint and debug package
         run: gradle --no-daemon -p apps/android testDebugUnitTest lint assembleDebug
+      - name: Upload debug APK for physical-device validation
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-debug-apk
+          path: apps/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 7
+      - name: Upload Android instrumentation reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-instrumentation-reports
+          path: |
+            apps/android/app/build/reports/androidTests/connected/**
+            apps/android/app/build/outputs/androidTest-results/connected/**
+          if-no-files-found: warn
+          retention-days: 7
       - name: Reclaim runner space for the Android emulator
         run: |
           df -h /

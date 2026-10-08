@@ -26,6 +26,10 @@ class AndroidClientSmokeInstrumentedTest {
     fun appLaunchesAndNavigatesToTrustedDevices() {
         composeRule.onNodeWithText("ClipBridge").assertIsDisplayed()
         composeRule.onNodeWithText("Clipboard").assertIsDisplayed()
+        composeRule.waitUntil(timeoutMillis = 15_000) {
+            composeRule.onAllNodesWithText("LAN text handoff available", substring = true)
+                .fetchSemanticsNodes().isNotEmpty()
+        }
         composeRule.onAllNodesWithText("Devices")[0].performClick()
         composeRule.onNodeWithText("Trusted devices").assertIsDisplayed()
     }

@@ -8,7 +8,7 @@ Phase 3 Windows cross-device E2E remains **OPEN** because an independent second 
 
 ## Phase 4 Android foundation status
 
-`apps/android` contains a Kotlin/Jetpack Compose client source with Keystore-protected identity, QR joining, transcript SAS confirmation, clipcore trust/revocation, foreground LAN receive, and encrypted one-shot text send. It supports Compose and explicitly read clipboard text through the same trusted LAN transport. Android CI has not yet compiled this revision; pairing, runtime send/receive, and Keystore behavior remain unverified until hosted build/emulator and real-device checks pass. See `ROADMAP.md` and `TEST_PLAN.md`.
+`apps/android` contains a Kotlin/Jetpack Compose client source with Keystore-protected identity, QR joining, transcript SAS confirmation, clipcore trust/revocation, foreground LAN receive, and encrypted one-shot text send. Hosted Android CI has passed the Rust Android ABI builds, JNI tests, Kotlin unit tests, lint, and debug packaging. Emulator instrumentation has reached the app but exposed a protected-identity startup/persistence failure; a fail-closed atomic-write adjustment is committed and still awaits a successful rerun. No Windows↔Android pairing or transfer E2E is claimed. See `ROADMAP.md` and `TEST_PLAN.md`.
 
 ## Phase 3 desktop implementation status
 

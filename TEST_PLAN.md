@@ -194,3 +194,14 @@ Hosted/local validation state before the next push:
 - Compatibility was rechecked against official Android documentation. AGP 9.0.1 supports API 36.1 and requires Gradle 9.1/JDK 17; Compose BOM 2025.12.00 provides Compose 1.10. The workflow is now pinned to Android platform 36, build-tools 36.0.0, AGP 9.0.1, Gradle 9.1 and that Compose BOM.
 - Local `cargo fmt --all -- --check` and standalone rustfmt are **BLOCKED** because the managed Windows sandbox returns access denied while canonicalizing workspace parent paths. `git diff --check` passed. No local Android SDK, Gradle, ADB, emulator, or attached Android device is available.
 - Android hosted build/lint/unit/emulator test after toolchain and source fixes: **PENDING**. Real Android Keystore runtime, real pairing/SAS, trust persistence, Windows↔Android Compose/clipboard in both directions, revocation, Pause enforcement, and post-transfer privacy inspection: **NOT EXECUTED**. Android and desktop Phase 3 remain OPEN.
+
+
+## Android hosted rerun results (2026-10-08)
+
+The Android workflow now passes Android ABI Rust builds (`arm64-v8a`, `x86_64`), JNI boundary tests, Kotlin unit tests, lint, and `assembleDebug`. The successful build/test/lint/package evidence is run [#37705901160](https://github.com/sajjadka21/secure-handoff-dev/actions/runs/37705901160), commit `d9c470f0d4b500b7642b8dc7e6f14e6076a92da8`; the full Windows/Ubuntu Rust, desktop, fuzz, dependency-policy, SBOM, and secret-scan matrix also passed on that run's paired quality workflow [#37705901089](https://github.com/sajjadka21/secure-handoff-dev/actions/runs/37705901089).
+
+The hosted API 36 x86_64 emulator booted after freeing unused runner toolchains and enabling KVM permissions. Keystore instrumentation did **not** pass: the UI failed to reach protected-identity Ready and the identity-store test received `identity_material_missing` when a wrapping-key alias existed without ciphertext. This is a real unresolved Android identity startup/persistence defect, not an infrastructure-only test failure. The code now commits the authenticated envelope with same-directory Android `Os.rename` (`c54d8607f4420b3fee8a66ade4f84d46a2b82597`), but that change is not yet validated.
+
+Runs [#37706789580](https://github.com/sajjadka21/secure-handoff-dev/actions/runs/37706789580) and [#37706789607](https://github.com/sajjadka21/secure-handoff-dev/actions/runs/37706789607) for commit `c54d8607f4420b3fee8a66ade4f84d46a2b82597` failed before runner assignment: every job has `runner_id: 0`, no steps, and no job log. They provide no build/test evidence. The final code-level patch must still receive hosted execution.
+
+Android runtime QA, Keystore/corruption pass, Windows↔Android pairing/SAS/trust persistence, bidirectional Compose and clipboard transfer, revocation, Privacy Pause, and visual/accessibility review remain open. No physical Android device is attached. Phase 3 and Phase 4 remain **OPEN**.

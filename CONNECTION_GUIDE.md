@@ -8,9 +8,9 @@ The desktop currently supports QR-bound pairing and encrypted text transfer over
 
 Clipboard reading/writing is user initiated using the native clipboard plugin. Linux reports X11 or Wayland from session environment variables; no global Linux clipboard monitoring is implemented or implied. Wayland clipboard operations remain subject to compositor behavior and must surface OS denial. iOS/iPadOS PWA has a separate foreground/user-gesture threat model and is not part of this desktop build.
 
-## Android LAN path (source implemented; validation pending)
+## Android LAN path (compiled; runtime validation open)
 
-Windows is the pairing issuer in this slice; Android joins by scanning the issuer's actual QR with Google Code Scanner or pasting its hex payload. Rust parses the QR, connects to the first advertised endpoint, verifies the issuer's Noise static key against the QR, derives the SAS, and performs the existing bilateral confirmation/ACK flow after the user confirms. Android is not an invitation issuer yet. This source path has not passed the current hosted build or emulator/device runtime checks.
+Windows is the pairing issuer in this slice; Android joins by scanning the issuer's actual QR with Google Code Scanner or pasting its hex payload. Rust parses the QR, connects to the first advertised endpoint, verifies the issuer's Noise static key against the QR, derives the SAS, and performs the existing bilateral confirmation/ACK flow after the user confirms. Android is not an invitation issuer yet. Hosted Android ABI/JNI/Kotlin/lint/package checks passed. API 36 emulator instrumentation reached the app but failed protected identity startup/persistence; the targeted atomic-rename correction still awaits a successful rerun. No pairing or transfer E2E is claimed.
 
 For receiving, open Home and choose **Enable receiving** while on a private Wi-Fi/Ethernet LAN. The app displays the current endpoint for manual entry on Windows. The TCP listener is foreground-only and stops when the app leaves the foreground. Sending requires the trusted device and its current address; each text send creates a new Noise-authenticated encrypted session and checks the local trust/revocation database before data. Compose and manually read clipboard text use the same envelope. Received text stays in the active receive surface and is copied only when the user taps **Copy**. Android issuer mode, automatic endpoint discovery, background receive, and routes other than LAN are not implemented.
 
@@ -19,7 +19,7 @@ For receiving, open Home and choose **Enable receiving** while on a private Wi-F
 | Route | Intended pairings | Current desktop status | Required security |
 |---|---|---|---|
 | LAN TCP | Windows/Linux desktop on a reachable local network | Implemented in the desktop; endpoint is currently entered/shared manually. Cross-platform app E2E is still pending. | Noise XX + local trust/revocation gate + encrypted envelope |
-| LAN TCP | Windows ↔ Android | Android source wires Windows-issued QR pairing, shared trust DB semantics and foreground TCP text transfer; hosted compile and runtime validation remain pending. Manual endpoints. | Same clipcore Noise, local trust/revocation gate and encrypted envelope |
+| LAN TCP | Windows ↔ Android | Android source wires Windows-issued QR pairing, shared trust DB semantics and foreground TCP text transfer; hosted compilation passed, but Android runtime and Windows↔Android E2E remain unverified. Manual endpoints. | Same clipcore Noise, local trust/revocation gate and encrypted envelope |
 | Nearby Connections | Android-supported peers | Planned; not implemented | Same Noise session above route |
 | Bluetooth/BLE | Native peers where OS APIs and payload needs fit | Planned; not implemented | Same Noise session; BLE is not trust |
 | WebRTC DataChannel | Cross-network native/PWA peers | Planned; not implemented | Noise in addition to WebRTC DTLS |

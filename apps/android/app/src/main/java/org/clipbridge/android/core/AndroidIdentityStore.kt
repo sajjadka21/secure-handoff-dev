@@ -2,14 +2,13 @@ package org.clipbridge.android.core
 
 import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
+import android.system.Os
 import android.security.keystore.KeyProperties
 import java.io.File
 import java.io.FileOutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
-import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
-import java.nio.file.StandardCopyOption
 import java.security.KeyStore
 import java.util.Arrays
 import javax.crypto.Cipher
@@ -146,9 +145,9 @@ class AndroidIdentityStore(context: Context) {
             stream.fd.sync()
         }
         try {
-            Files.move(temporaryFile.toPath(), identityFile.toPath(), StandardCopyOption.ATOMIC_MOVE)
-        } catch (error: AtomicMoveNotSupportedException) {
-            temporaryFile.delete()
+            // Both files live in the same app-private directory, so POSIX rename is atomic.
+            Os.rename(temporaryFile.absolutePath, identityFile.absolutePath)
+        } catch (error: Exception) {
             throw IllegalStateException("identity_atomic_commit_unavailable", error)
         } finally {
             temporaryFile.delete()
